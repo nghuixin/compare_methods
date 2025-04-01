@@ -6,7 +6,7 @@
 *.Rproj
 
 # renv (if not tracking dependencies)
-renv/
+# renv/
 # renv.lock  # uncomment if you want to ignore it too
 
 # Python
