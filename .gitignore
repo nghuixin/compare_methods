@@ -1,2 +1,27 @@
-/data_processed
+# R files
+.Rhistory
+.RData
+.RDataTmp
+.Rproj.user/
+*.Rproj
+
+# renv (if not tracking dependencies)
+renv/
+# renv.lock  # uncomment if you want to ignore it too
+
+# Python
+__pycache__/
+*.pyc
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data & outputs
+*.jpeg
 *.csv
+data_processed/
+figures/
+
+# Misc
+*.tmp
+*~
