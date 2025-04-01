@@ -20,7 +20,7 @@ __pycache__/
 *.jpeg
 *.csv
 data_processed/
-figures/
+ 
 
 # Misc
 *.tmp

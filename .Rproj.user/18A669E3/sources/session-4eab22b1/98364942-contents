@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-renv::init()
+#renv::init()
 
 pckgs <- c("dplyr", "tidyverse", "DescTools", "ggplot2", "readxl", "lme4"
                , "ModelMetrics", "merTools", "lmtest", "emmeans", "haven", "lmerTest",  "labelled", "data.table", 'outliers',    'Hmisc', 'irr', 'psych', 'ggtext', 'gridExtra')
@@ -444,7 +444,12 @@ r2_values_photon <- summary(lm(PC1 ~ resid_bpad_photon, data = outliers_removed_
 plot2 <- base_plot +
  geom_richtext(aes(label = paste0("R<sup>2</sup> = ",  format(round(r2_values_photon, digits=3), nsmall = 2) ), x = Inf, y = -Inf, hjust = 1, vjust = -0.5), color = 'black') +
   labs(x = "Residual Brain-PAD",title = "PHOTON-BA")
+
+
+
+jpeg('figures/lm_PC1_resid_bpad_photon.jpeg', width = 4000, height = 4000, units = "px", res = 500)
 plot2
+dev.off()
 ```
  
 
@@ -459,10 +464,10 @@ base_plot <- ggplot(outliers_removed_df_pc, aes(x = resid_bpad_cnn, y = PC1, col
 
 
 r2_values_cnn <- summary(lm(PC1 ~ resid_bpad_cnn, data = outliers_removed_df_pc))$r.squared
-
+jpeg('figures/lm_PC1_resid_bpad_cnn.jpeg', width = 4000, height = 4000, units = "px", res = 500)
 plot3 <- base_plot +  geom_richtext(aes(label = paste0("R<sup>2</sup> = ", format(round(r2_values_cnn, digits=3), nsmall = 2) ), x = Inf, y = -Inf, hjust = 1, vjust = -0.5), color = 'black') + labs(x = "Residual Brain-PAD",title = "MIDI")
 plot3
- 
+dev.off() 
 
 ```
 
