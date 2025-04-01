@@ -1,0 +1,527 @@
+---
+title: "compare_four_models_cog_function"
+author: "Hui Xin Ng"
+date: "2023-07-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+renv::init()
+
+pckgs <- c("dplyr", "tidyverse", "DescTools", "ggplot2", "readxl", "lme4"
+               , "ModelMetrics", "merTools", "lmtest", "emmeans", "haven", "lmerTest",  "labelled", "data.table", 'outliers',    'Hmisc', 'irr', 'psych', 'ggtext', 'gridExtra')
+pckgs %in% loadedNamespaces() # check if the packages are loaded
+
+pacman::p_load(pckgs, character.only = TRUE)
+pckgs %in% loadedNamespaces()
+
+```
+
+# Functions
+```{r}
+# function to test whether data is normally distributed
+test_normality <- function(data) {
+  normality_test <- data %>%
+  summarise(across(everything(), ~ shapiro.test(.)$p.value))
+  return(normality_test)
+}
+## Helper functions
+getPartialEtaSq<-function(m_fixed) {
+  petasq <- round(as.data.frame(EtaSq(m_fixed))[2],3)
+  return(petasq) }
+
+# z transform data
+z_transform <- function(data) {
+  # Calculate column-wise means and standard deviations
+  means <- colMeans(data)
+  std_devs <- apply(data, 2, sd) 
+  # Z-transform each column
+  z_transformed_data <- scale(data, center = means, scale = std_devs) %>% as.data.frame()
+  return(z_transformed_data)
+}
+
+# get linear model's coefficients
+extract_coefficients_pvalues <- function(m, cog_score) {
+  summary_age_mod <- summary(m) 
+  coefficients <- summary_age_mod$coefficients[-1, "Estimate"] %>% round(2)
+  p_values <- summary_age_mod$coefficients[-1, "Pr(>|t|)"]  
+  
+  # Replace p-values with significance levels or rounded values
+  p_values_formatted <- ifelse(p_values < 0.001, "< 0.001",
+                               ifelse(p_values < 0.01, "< 0.01",
+                                      ifelse(p_values < 0.05, "< 0.05",
+                                             round(p_values, 2)))) 
+  result <- data.frame(coef_pval = paste(coefficients, '(', p_values_formatted,')'))
+  rownames(result) <- c('sex', 'age', deparse(substitute(cog_score)), 'interaction' )
+  result <- result %>% transpose() %>% `colnames<-`(c('sex', 'age', 'cog_score', 'interaction' ))
+  return(result)
+}
+
+remove_outliers <- function(data, threshold = 3) {
+  m <- apply(data, 2, mean)  # Calculate medians for each variable
+  mad_values <- apply(data, 2, mad)  # Calculate median absolute deviations (MADs) for each variable
+  
+  # Calculate the outlier threshold as a multiple of MAD
+  outlier_threshold <- threshold * mad_values
+  
+  # Identify outlier observations for each variable
+  outliers <- apply(data, 2, function(x) abs(x - m) > outlier_threshold)
+  
+  # Remove outlier observations from the dataset
+  cleaned_data <- data[!apply(outliers, 1, any), ]
+  
+  return(cleaned_data)
+}
+``` 
+   
+```{r cars}
+path = file.path("../data_original/Master_BAI_080720_with_051517completers_060117imagingmaster_genotypes_brainages_ENIGMA_FS_MERGEFK_30122020.sav")
+
+original_df = read_sav(path)
+original_df%>% group_by(mri_scrn, dxgroup) %>% tally()
+
+
+original_df <- original_df %>% dplyr::select(
+agevisit,
+dxgroupFK,
+#trvsctrw, # DKEFS - Trails Visual Scanning Completion Times Raw  
+
+trvsoerw, # DKEFS - Trails Visual Scanning Omission Errors Raw (Misses)
+trvscerw, # DKEFS - Trails Visual Scanning Commission Errors Raw (False Alarm)
+
+trnsctrw, # DKEFS - Trails Number Sequencing Completion Times Raw (TMT A)
+trlnctrw, # DKEFS - Trails Letter-Number Completion Times Raw (TMT B)
+trmsctrw, # DKEFS - Trails Motor Speed Completion Times Raw
+
+cwicnrw, # DKEFS - Color Word Interference - Color Naming Raw / normally dist
+cwiwrrw, # DKEFS - Color Word Interference - Word Reading Raw / normally dist
+
+cwiirw, # DKEFS - Color Word Interference - Inhibition Raw
+cwiisrw, # DKEFS - Color Word Interference - Inhibition/Switching Raw 
+
+scid_a1, # SCID Current GAF
+panspos, # PANS Positive Total
+pansneg, # PANS Negative Total
+pansgen, # PANS General Total
+ymrstot, 
+hamtot17,
+hamtot28,
+
+visit,
+stdyptid) 
+original_df <- setDT(original_df)[, lapply(.SD, na.omit), by = stdyptid]
+
+original_df <- original_df %>% filter(visit == 0) %>% mutate(visit = 'Baseline')
+ 
+ 
+#training_set <- original_df %>% dplyr::filter(!stdyptid %in% df$stdyptid, !stdyptid %in% c('BD087', 'BD223')) # only healthy individuals
+original_df
+
+```
+
+ 
+
+```{r}
+df<-read.csv("../data_processed/df_all_brainage_2025.csv") 
+mod <- lm(dxgroup ~ agevisit, data = df)
+summary(mod)
+ 
+# this file is created from the Jupyter notebook to produce the same 44 BD and 37 HC participants for analyses  
+df <- df %>% dplyr::select("stdyptid", 'gender','dxgroupFK' ,"visit", 'ridge_BrainAge',  'age_prediction', 'ageprediction_BrainAgeR' ,"cnn_BrainAge", "agevisit")  
+ 
+df  <- df %>% mutate(bpad_ridge = ridge_BrainAge - agevisit,
+                     bpad_photon = age_prediction - agevisit,
+                     bpad_BrainAgeR = ageprediction_BrainAgeR - agevisit,
+                     bpad_cnn = cnn_BrainAge - agevisit,
+                     age2 = agevisit*2)
+ 
+
+# remove NA values from each column in the data frame df while grouping the rows by the 'stdyptid' column
+df <- setDT(df)[, lapply(.SD, na.omit), by = stdyptid] 
+
+df$dxgroupFK <- haven::labelled(as.numeric(factor(df$dxgroupFK, levels = c("HC", "BD"))), labels = c('HC' = 0, 'BD' = 1))
+# Drop 'visit' from original_df
+ 
+
+ 
+original_df <- original_df %>%
+  mutate(dxgroupFK = as.numeric(as_factor(dxgroupFK)))
+
+df <- df %>%
+  mutate(dxgroupFK = as.numeric(as_factor(dxgroupFK)))
+
+# Now merge on stdyptid and dxgroupFK
+ 
+merged_df <- merge(original_df, df, by = c("stdyptid", "agevisit"))
+ 
+merged_df <- merged_df %>%
+  rename(visit = visit.y,
+         dxgroupFK = dxgroupFK.x)%>%
+  dplyr::select(-visit.x, -dxgroupFK.y) %>%
+  mutate(dxgroupFK = case_when(
+    dxgroupFK == 1 ~ 0,
+    dxgroupFK == 2 ~ 1,
+    TRUE ~ dxgroupFK  # keep original value if not 1 or 2
+  )) 
+ 
+``` 
+
+
+```{r} 
+df <- merged_df 
+df <- df %>%
+  mutate(
+    tmtb_a = trlnctrw - trnsctrw,
+    stroop1 = cwiirw - (cwicnrw + cwiwrrw) / 2,
+    stroop2 = cwiisrw - (cwicnrw + cwiwrrw) / 2,
+    #gender = ifelse(gender == "Male", 1, 0),
+    dxgroupFK = as_factor(dxgroupFK),
+        gender = as_factor(gender) 
+
+   # dxgroupFK = ifelse(dxgroupFK == "BD", 1, 0)
+  )
+df
+
+
+
+ggplot(df, aes(x = agevisit, fill = factor(dxgroupFK))) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Distribution of Ages Across BD and HC Groups",
+       x = "Chronological Age",
+       y = "Density",
+       fill = "Group") + theme_classic()
+
+  
+
+```
+
+### Cognitive Performance Scores as predictor of brain-PAD 
+ 
+
+### Cognitive scores distribution and summary stats of both BD and HC
+```{r}
+# Select column by index position
+cog_test_scores  <- df %>% dplyr::select(trvsoerw, # DKEFS - Trails Visual Scanning Omission Errors Raw (Misses)
+trvscerw, # DKEFS - Trails Visual Scanning Commission Errors Raw (False Alarm)
+
+trnsctrw, # DKEFS - Trails Number Sequencing Completion Times Raw (TMT A)
+trlnctrw, # DKEFS - Trails Letter-Number Completion Times Raw (TMT B)
+trmsctrw, # DKEFS - Trails Motor Speed Completion Times Raw
+
+cwicnrw, # DKEFS - Color Word Interference - Color Naming Raw / normally dist
+cwiwrrw, # DKEFS - Color Word Interference - Word Reading Raw / normally dist
+
+cwiirw, # DKEFS - Color Word Interference - Inhibition Raw
+cwiisrw, # DKEFS - Color Word Interference - Inhibition/Switching Raw 
+ stroop1, stroop2, tmtb_a ,stdyptid, dxgroupFK, gender)%>%  dplyr::select_if(~!all(is.na(.)))  # %>% filter(stroop1> 0, stroop2 >0, tmtb_a < 1500) #manual removal of outliers based on visualzation
+# outliers are addressed in code beneath using mean absolute deviance 
+# Reshape the dataframe from wide to long format
+df_long <- reshape2::melt(cog_test_scores)
+
+# Plot the distribution of cog scores using facet_wrap
+ggplot(df_long, aes(x = value, fill = dxgroupFK)) +
+  geom_histogram() +
+  facet_wrap(~ variable, scales = "free") +
+  theme_bw() 
+
+summary_stats <- cog_test_scores %>% dplyr::select(-dxgroupFK, -stdyptid, -gender) %>%
+  summarise(across(everything(), list(
+    Mean = ~mean(.x, na.rm = TRUE),
+    SD = ~sd(.x, na.rm = TRUE),
+  #  Min = ~min(.x, na.rm = TRUE),
+  #  Max = ~max(.x, na.rm = TRUE),
+    Count = ~sum(!is.na(.x))
+  ), .names = "{.col}_{.fn}"))
+
+summary_stats %>% melt(.) %>% mutate(value = round(value, 2))
+```
+### Plot distribution of z-transformed non-normal cognitive scores
+```{r}
+cog_test_scores%>% dplyr::select(where(is.numeric)) %>% test_normality() > 0.05 # none of the scores are normal (when BD and HC are included) 
+```
+This section identifies and removes extreme outliers (more than 3 SD from the mean) from cognitive test scores using a standard deviation-based filter. It then:    
+1. Visualizes the distributions of the cleaned variables.  
+2. Computes summary statistics (mean and SD) for each variable.   
+3. Tests for normality on numeric variables to determine suitability for parametric analyses.
+```{r}
+# there 5 subjects with scores > 3 std devs above the mean
+
+# Remove extreme outliers (beyond ±3 standard deviations) and round remaining values
+outliers_removed <- cog_test_scores %>%
+  dplyr::select(-trvscerw, -trnsctrw) %>%  # Drop specific variables that are ranked or binary
+  mutate_if(is.numeric, ~ ifelse(abs(. - mean(.)) / sd(.) <= 3, ., NA)) %>%
+  dplyr::select_if(~!all(is.na(.))) %>%    # Drop columns that are all NA
+  mutate_if(is.numeric, ~ round(., 3))
+
+# Visualize cleaned distributions with histograms faceted by variable
+outliers_removed %>%
+  reshape2::melt() %>%
+  ggplot(aes(x = value, fill = dxgroupFK)) +
+  geom_histogram() +
+  facet_grid(~ variable, scales = "free") +
+  theme_bw()
+
+# Compute mean and standard deviation for each numeric variable
+summary_stats <- outliers_removed %>%
+  dplyr::select(-dxgroupFK, -stdyptid, -gender) %>%
+  summarise(across(everything(), list(
+    Mean = ~mean(.x, na.rm = TRUE),
+    SD = ~sd(.x, na.rm = TRUE)
+  ), .names = "{.col}_{.fn}"))
+
+# Reshape and round summary statistics for easier inspection
+summary_stats %>%
+  reshape2::melt() %>%
+  mutate(value = round(value, 2))
+
+# Optional: Check which numeric variables are approximately normally distributed (p > 0.05)
+# Requires a custom function `test_normality()` applied across columns
+outliers_removed %>%
+  select_if(is.numeric) %>%
+  test_normality > 0.05 
+
+```
+
+
+This script performs a PCA-based dimensionality reduction on cognitive task variables after removing outliers. It includes the following steps:
+
+1. Adjusts skewed values by adding a constant to ensure all values are positive.
+2. Removes variables that contain only NAs.
+3. Applies a log10 transformation and standardizes numeric variables.
+4. Flip signs for specific variables so that higher values reflect better cognitive performance.
+5. Conducts Principal Component Analysis (PCA) and extracts the first principal component.
+6. Merges the PCA scores with the original dataframe containing additional variables like age or diagnosis
+```{r}
+ 
+
+# Add a constant to shift all values of 'tmtb_a' to be positive
+constant <- abs(min(outliers_removed$tmtb_a, na.rm = TRUE)) + 1
+outliers_removed$tmtb_a <- outliers_removed$tmtb_a + constant
+
+# Remove columns that are entirely NA
+outliers_removed <- outliers_removed %>%
+  select_if(function(x) !all(is.na(x)))
+
+# Perform PCA on numeric variables after log transformation and scaling
+pca_result <- outliers_removed %>%
+  select_if(is.numeric) %>%
+  log10() %>%
+  mutate_if(is.numeric, scale) %>%
+  mutate(
+    cwicnrw = -cwicnrw,
+    cwiwrrw = -cwiwrrw,
+    cwiirw = -cwiirw,
+    cwiisrw = -cwiisrw
+  ) %>%
+  principal(nfactors = 1)
+
+# Create a dataframe that includes non-cognitive variables (e.g., age, diagnosis)
+outliers_removed_df <- df %>% 
+  filter(stdyptid %in% outliers_removed$stdyptid)
+
+# Bind PCA scores to the full dataframe and flip direction so that higher = better performance
+outliers_removed_df_pc <- cbind(as.data.frame(outliers_removed_df), pca_result$scores * -1)
+
+# View the final dataframe with PCA scores
+outliers_removed_df_pc
+write.csv(outliers_removed_df_pc, 'data_processed/outliers_removed_cognitive_test_scores.csv')
+
+```
+
+### Scree Plot
+```{r}
+# Extract eigenvalues from the PCA result
+eigenvalues <- pca_result$values
+
+# Calculate the proportion of variance explained by each principal component
+variance_explained <- eigenvalues / sum(eigenvalues)
+
+# Create a scree plot
+plot(1:length(variance_explained), variance_explained, type = "b", 
+     xlab = "Principal Component", ylab = "Proportion of Variance Explained",
+     main = "Scree Plot")
+variance_explained
+```
+
+# Linear regression model with bpad as outcome variable
+### Ridge Bpad
+```{r}
+# Filter out rows with missing bpad_ridge
+filtered_df <- outliers_removed_df_pc %>%
+  filter(complete.cases(bpad_ridge))
+
+# Refit model using the filtered data
+resid_mod <- lm(bpad_ridge ~ gender * agevisit, data = filtered_df)
+summary(resid_mod)
+
+# Get residuals from the model
+filtered_df$resid_bpad_ridge <- resid(resid_mod)
+
+# Regress PC1 on residualized bpad_photon
+pca_cog_mod <- lm(PC1 ~ resid_bpad_ridge, data = filtered_df)
+summary(pca_cog_mod)
+
+# Get partial eta squared
+getPartialEtaSq(pca_cog_mod)
+
+m <- glm(dxgroupFK ~ agevisit, data = filtered_df, family = binomial)
+summary(m)
+```
+
+### PHOTON Bpad
+```{r}
+resid_mod <- lm(bpad_photon ~   gender*agevisit, data = outliers_removed_df_pc)
+resid_bpad_photon <- resid(resid_mod)
+summary(resid_mod)
+pca_cog_mod <- lm(PC1 ~  resid_bpad_photon  , data = outliers_removed_df_pc)
+summary(pca_cog_mod)
+getPartialEtaSq(pca_cog_mod) 
+ 
+```
+
+
+### BrainAgeR Bpad
+```{r}
+resid_mod <- lm(bpad_BrainAgeR ~   gender*agevisit, data = outliers_removed_df_pc)
+resid_bpad_BrainAgeR <- resid(resid_mod)
+grubbs.test(resid_bpad_BrainAgeR)
+summary(resid_mod)
+pca_cog_mod <- lm(PC1 ~  resid_bpad_BrainAgeR  , data = outliers_removed_df_pc)
+summary(pca_cog_mod)
+getPartialEtaSq(pca_cog_mod) 
+ 
+```
+
+```{r}
+resid_mod <- lm(bpad_cnn ~   gender*agevisit, data = outliers_removed_df_pc)
+resid_bpad_cnn <- resid(resid_mod)
+grubbs.test(resid_bpad_cnn)
+ 
+pca_cog_mod <- lm(PC1 ~ resid_bpad_cnn, data = outliers_removed_df_pc)
+summary(pca_cog_mod) 
+getPartialEtaSq(pca_cog_mod) 
+
+ 
+``` 
+
+### Four subplots showing the linear relationship between resid bpad and PC1
+
+```{r}
+
+# Calculate R-squared for the entire dataset
+r2_values_BrainAgeR <- summary(lm(PC1 ~ resid_bpad_BrainAgeR, data = outliers_removed_df_pc))$r.squared
+
+base_plot <- ggplot(outliers_removed_df_pc, aes(x = resid_bpad_BrainAgeR, y = PC1, color = factor(dxgroupFK))) +
+  geom_point() + geom_smooth(aes(group = factor(dxgroupFK), color = factor(dxgroupFK)), method = "lm", formula = y ~ x, se = FALSE) +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = 'darkorchid2') + # Add the purple linear regression line
+  scale_color_manual(name = "Diagnosis Group", labels = c("HC", "BD"), values = c('darkblue', 'red')) +
+  theme_bw() +
+  theme(text = element_text(size = 11), legend.position = "bottom") +
+  coord_cartesian(xlim = c(-20, 20), ylim = c(-3, 3))
+r2_values_BrainAgeR <- summary(lm(PC1 ~ resid_bpad_BrainAgeR, data = outliers_removed_df_pc))$r.squared
+# Annotate the plot with R-squared values for the first variable
+plot1 <- base_plot +
+  geom_richtext(aes(label = paste0("R<sup>2</sup> = ", format(round(r2_values_BrainAgeR, digits=3), nsmall = 2) ), x = Inf, y = -Inf, hjust = 1, vjust = -0.5), color = 'black') +
+  labs(x = "Residual Brain-PAD", title = "BrainageR")
+
+jpeg('figures/lm_PC1_resid_bpad_BrainAgeR', width = 4000, height = 4000, units = "px", res = 500)
+plot1
+dev.off()
+```
+
+
+```{r}
+base_plot <- ggplot(outliers_removed_df_pc, aes(x = resid_bpad_photon, y = PC1,  color = factor(dxgroupFK)))   +
+  geom_point()  +
+  geom_point() + geom_smooth(aes(group = factor(dxgroupFK), color = factor(dxgroupFK)), method = "lm", formula = y ~ x, se = FALSE) +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = 'darkorchid2') + # Add the purple linear regression line
+  scale_color_manual(name = "Diagnosis Group", labels = c("HC", "BD"), values = c('darkblue', 'red')) +
+  theme_bw() +
+  theme(text = element_text(size = 11), legend.position = "bottom") +
+  coord_cartesian(xlim = c(-20, 20), ylim = c(-3, 3))
+r2_values_photon <- summary(lm(PC1 ~ resid_bpad_photon, data = outliers_removed_df_pc))$r.squared
+
+plot2 <- base_plot +
+ geom_richtext(aes(label = paste0("R<sup>2</sup> = ",  format(round(r2_values_photon, digits=3), nsmall = 2) ), x = Inf, y = -Inf, hjust = 1, vjust = -0.5), color = 'black') +
+  labs(x = "Residual Brain-PAD",title = "PHOTON-BA")
+plot2
+```
+ 
+
+```{r}
+
+base_plot <- ggplot(outliers_removed_df_pc, aes(x = resid_bpad_cnn, y = PC1, color = factor(dxgroupFK)))   +
+  geom_point() + geom_smooth(aes(group = factor(dxgroupFK), color = factor(dxgroupFK)), method = "lm", formula = y ~ x, se = FALSE) + geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = 'darkorchid2') + # Add the purple linear regression line
+  scale_color_manual(name = "Diagnosis Group", labels = c("HC", "BD"), values = c('darkblue', 'red')) +
+  theme_bw() +
+  theme(text = element_text(size = 11), legend.position = "bottom") +
+  coord_cartesian(xlim = c(-20, 20), ylim = c(-3, 3))
+
+
+r2_values_cnn <- summary(lm(PC1 ~ resid_bpad_cnn, data = outliers_removed_df_pc))$r.squared
+
+plot3 <- base_plot +  geom_richtext(aes(label = paste0("R<sup>2</sup> = ", format(round(r2_values_cnn, digits=3), nsmall = 2) ), x = Inf, y = -Inf, hjust = 1, vjust = -0.5), color = 'black') + labs(x = "Residual Brain-PAD",title = "MIDI")
+plot3
+ 
+
+```
+
+```{r}
+
+base_plot <- ggplot(filtered_df, aes(x = resid_bpad_ridge, y = PC1, color = factor(dxgroupFK)))   +
+  geom_point() + geom_smooth(aes(group = factor(dxgroupFK), color = factor(dxgroupFK)), method = "lm", formula = y ~ x, se = FALSE) + geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = 'darkorchid2') + # Add the purple linear regression line
+  scale_color_manual(name = "Diagnosis Group", labels = c("HC", "BD"), values = c('darkblue', 'red')) +
+  theme_bw() +
+  theme(text = element_text(size = 11), legend.position = "bottom") +
+  coord_cartesian(xlim = c(-20, 20), ylim = c(-3, 3))
+
+r2_values_ridge <- summary(lm(PC1 ~ resid_bpad_ridge, data = filtered_df ))$r.squared
+plot4 <- base_plot +
+  geom_richtext(aes(label = paste0("R<sup>2</sup> = ", format(round(r2_values_ridge, digits=3), nsmall = 2) ), x = Inf, y = -Inf, hjust = 1, vjust = -0.5), color = 'black') +
+  labs(x = "Residual Brain-PAD", title = 'UCSD Multimodal')
+plot4 
+```
+ 
+```{r}
+# Reshape the dataframe from wide to long format
+df_long <- reshape2::melt(cog_test_scores)
+
+# Open JPEG device
+jpeg("cog_performance_scores_distribution.jpeg", width = 1200, height = 800, quality = 100)
+
+# Plot and save
+ggplot(df_long, aes(x = value, fill = dxgroupFK)) +
+  geom_histogram() +
+  facet_wrap(~ variable, scales = "free") +
+  theme_bw()
+
+# Close the device
+dev.off()
+
+```
+
+### Log transform cog scores
+```{r}
+# https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3577045/ PCA to run on DKEFS
+# Ensure constant is computed properly
+constant <- abs(min(outliers_removed$tmtb_a, na.rm = TRUE)) + 1
+
+# Shift tmtb_a to be all positive
+outliers_removed$tmtb_a <- outliers_removed$tmtb_a + constant
+
+# Add a constant to the scores to make them positive
+log_transformed <- outliers_removed %>%  mutate_if(., is.numeric, log10)
+log_transformed %>%
+  dplyr::select(where(is.numeric)) %>%
+  dplyr::select(where(~ sum(!is.na(.)) >= 3)) %>%
+  summarise(across(everything(), ~shapiro.test(.)$p.value))
+log_transformed %>% reshape2::melt(.) %>%ggplot(., aes(x = value, fill=dxgroupFK)) +
+  geom_histogram() +
+  facet_wrap(~ variable, scales = "free") +
+  theme_classic()
+
+# Specify the columns to select from df2
+selected_columns <- c("dxgroupFK", "gender", "agevisit", "stdyptid", 'bpad_photon', 'bpad_ridge', 'bpad_BrainAgeR', 'bpad_cnn', 'age_prediction', 'ageprediction_BrainAgeR', 'ridge_BrainAge', 'cnn_BrainAge')
+```
+
+

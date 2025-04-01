@@ -1,0 +1,226 @@
+---
+title: "Model Evaluation Metrics"
+output: html_document
+date: "2024-02-29"
+---
+```{r setup, include=FALSE}
+libraries <- c("dplyr", "tidyverse", "DescTools", "ggplot2", "readxl", "lme4"
+               , "ModelMetrics", "merTools", "lmtest", "emmeans", "haven", "lmerTest"
+               , "metaforest", "rstatix", "labelled", "data.table", 'irr', 'corrplot')
+lapply(libraries, require , character.only = TRUE)
+
+```
+
+ 
+```{r cars}
+ 
+path = file.path("../data_original/Master_BAI_080720_with_051517completers_060117imagingmaster_genotypes_brainages_ENIGMA_FS_MERGEFK_30122020.sav")
+original_df = read_sav(path) 
+
+ 
+df<-read.csv("../data_processed/df_all_brainage_2025.csv") 
+ 
+ 
+
+df %>% group_by(dxgroupFK)%>% tally()
+ 
+```
+
+```{r}
+# df <- df %>% dplyr::select('ridge_BrainAge',  'age_prediction', 'ageprediction_BrainAgeR' ,"cnn_BrainAge", "agevisit", "stdyptid", "agevisit"  )  
+# df
+
+  
+df <- df %>% filter(!is.na(agevisit)) #%>% unique()
+ 
+
+ 
+df  <- df %>% mutate(Age2 = agevisit**2, Age3 = agevisit**3, 
+                     bpad_ridge = ridge_BrainAge - agevisit,
+                     bpad_photon = age_prediction - agevisit,
+                     bpad_BrainAgeR = ageprediction_BrainAgeR - agevisit,
+                     bpad_cnn = cnn_BrainAge - agevisit)
+df
+#df <- df %>% filter(!is.na(visit)) %>% unique()
+
+
+# Function to filter out data points outside of 3 SDs
+filter_outliers <- function(x) {
+  sd_x <- sd(x)
+  mean_x <- mean(x)
+  upper_limit <- mean_x + 3 * sd_x
+  lower_limit <- mean_x - 3 * sd_x
+  return(between(x, lower_limit, upper_limit))
+}
+ 
+```
+
+### Get correlations   among  models and with chronological age in HC
+```{r}
+
+predicted_age_chron_age_corr <- df %>% filter(dxgroupFK == 1) %>% dplyr::select(c("agevisit", "ridge_BrainAge", "age_prediction", "ageprediction_BrainAgeR", "cnn_BrainAge"))  %>% 
+  cor(.) %>%  round(., 3)
+predicted_age_chron_age_corr
+predicted_age_chron_age_corr
+colnames(predicted_age_chron_age_corr) <- c("Chronological Age", "Multimodal", "PHOTON", "BrainAgeR", "DenseNet" )  # Add new labels accordingly
+rownames(predicted_age_chron_age_corr) <- c("Chronological Age", "Multimodal", "PHOTON", "BrainAgeR", "DenseNet" )  # Add new labels accordingly
+
+predicted_age_chron_age_corr  
+
+
+bpad_chron_age_corr <- df %>% filter(dxgroupFK == 'HC') %>% dplyr::select(c('bpad_photon'    , 'bpad_BrainAgeR' ,'bpad_cnn','bpad_ridge'   , 'agevisit'    ))  %>% 
+  cor(.) %>%  round(., 3) 
+
+
+colnames(bpad_chron_age_corr) <- c("ChronologicalAge", "PHOTON", "Multimodal", "BrainAgeR", "DenseNet" )  # Add new labels accordingly
+rownames(bpad_chron_age_corr) <- c("ChronologicalAge", "PHOTON", "Multimodal", "BrainAgeR", "DenseNet" )  # Add new labels accordingly
+ 
+```
+### Get correlations   among models  and with chronological age in BD
+```{r}
+predicted_age_chron_age_corr <- df %>% filter(dxgroupFK == 'BD') %>% dplyr::select(c("agevisit", "ridge_BrainAge", "age_prediction", "ageprediction_BrainAgeR", "cnn_BrainAge"))  %>% 
+  cor(.)# %>%
+predicted_age_chron_age_corr %>% round(., 3) 
+```
+# calculate MAE for each model
+```{r setup, include=FALSE}
+ # Calculate absolute errors
+df <- df %>%
+  mutate(
+    abs_error_PHOTON = abs(age_prediction - agevisit), 
+    abs_error_brainageR = abs(ageprediction_BrainAgeR - agevisit),
+    abs_error_cnn = abs(cnn_BrainAge - agevisit),
+    abs_error_ridge = abs(ridge_BrainAge - agevisit))
+
+# Create a dataframe for plotting
+mae_data <- df %>% filter(dxgroupFK == 'HC') %>%
+  select(abs_error_ridge,abs_error_PHOTON,  abs_error_brainageR, abs_error_cnn) %>%
+  pivot_longer(cols = everything(), names_to = "Method", values_to = "MAE")
+
+mae_summary <- mae_data %>%
+  group_by(Method) %>%
+  summarise(
+    Mean = mean(MAE),
+    SD = sd(MAE)) 
+
+df %>%filter(gender==0) %>% dplyr::select(abs_error_PHOTON) %>%
+  summarise(
+    Mean = mean(abs_error_PHOTON))
+```
+
+
+### function for creating violint plots across models
+```{r}
+createViolinPlots <- function(data, group_var, method_var) {
+  bpad_data <- data %>%
+    filter(dxgroupFK == group_var) %>%
+    select({{method_var}}) %>%
+    pivot_longer(cols = everything(), names_to = "Method", values_to = 'bpad')
+  
+ summary <- bpad_data %>%
+    group_by(Method) %>%
+    summarise(
+      Mean = mean(bpad, na.rm = TRUE),  # Calculating mean with na.rm = TRUE to handle missing values
+      SD = sd(bpad, na.rm = TRUE)       # Calculating standard deviation with na.rm = TRUE to handle missing values
+)
+    
+  # Plotting with ggplot2
+g <- ggplot(bpad_data, aes(x = Method, y = bpad, fill = Method)) +
+    geom_violin(trim = FALSE)  +
+    stat_summary(fun = mean, geom = "point", shape = 18, size = 3, color = "black", show.legend = FALSE) + # Add means
+    stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1), geom = "errorbar", width = 0.2, show.legend = FALSE) + # Add standard deviations
+      geom_text(data = summary, aes(label = paste("Mean:", round(Mean, 2), "\nSD:", round(SD, 2)), x = Method, y = Mean + SD + 0.2), vjust = -1.5, size = 3.5) + # Add numerical values
+    theme_minimal() + guides(fill="none")
+return(g)
+}
+```
+
+### MAE across models violin plots
+```{r}
+mae_data$MAE <- factor(mae_data$MAE, levels = c('abs_error_PHOTON', 'abs_error_brainageR', 'abs_error_cnn', 'abs_error_ridge'))
+createViolinPlots(df, "HC", c(abs_error_ridge,abs_error_PHOTON,  abs_error_brainageR, abs_error_cnn))+  # Add numerical values
+    labs( 
+         x = "Method",
+         y = "Mean Absolute Error (MAE)")  
+```
+
+### Brain-PAD across models violin plots
+```{r}
+bpad_data$Method <- factor(bpad_data$Method, levels = c('bpad_photon'    , 'bpad_BrainAgeR' ,'bpad_cnn','bpad_ridge'))
+
+createViolinPlots(df, "BD", c(bpad_ridge, bpad_photon, bpad_cnn, bpad_BrainAgeR))  +  # Add numerical values
+    labs( x = "Method", y = "Brain-Predicted Age Difference (Brain-PAD)") 
+```
+
+```{r}
+# correlation between chronological age and brain-pad
+df %>% dplyr::select(bpad_ridge, bpad_photon , bpad_BrainAgeR ,bpad_cnn, dxgroupFK, gender, agevisit) %>%  melt(id = c('agevisit', 'dxgroupFK', 'gender'))%>% group_by(variable, dxgroupFK) %>% summarise(pval = as.numeric(cor.test(agevisit, value)[3]),                                                                correlation = cor(agevisit, value))%>% mutate(pval = round(pval, 3), correlation = round(correlation, 3))
+
+# correlation between chronological age and predicted age
+df %>% dplyr::select(ridge_BrainAge, ageprediction_BrainAgeR , age_prediction ,cnn_BrainAge, dxgroupFK, gender, agevisit) %>%  melt(id = c('agevisit', 'dxgroupFK', 'gender'))%>% group_by(variable, dxgroupFK) %>% summarise(pval = as.numeric(cor.test(agevisit, value)[3]),  correlation = cor(agevisit, value))%>% mutate(pval = round(pval, 3), correlation = round(correlation, 3)) %>% filter()
+
+
+pairs_braingage <- list(c("ridge_BrainAge", "ageprediction_BrainAgeR"),
+              c("ridge_BrainAge", "age_prediction"),
+              c("ridge_BrainAge", "cnn_BrainAge"),
+              c("ageprediction_BrainAgeR", "age_prediction"),
+              c("ageprediction_BrainAgeR", "cnn_BrainAge"),
+              c("age_prediction", "cnn_BrainAge"))
+
+pairs_bpad <- list(
+  c("bpad_ridge", "bpad_photon"),
+  c("bpad_ridge", "bpad_BrainAgeR"),
+  c("bpad_ridge", "bpad_cnn"),
+  c("bpad_photon", "bpad_BrainAgeR"),
+  c("bpad_photon", "bpad_cnn"),
+  c("bpad_BrainAgeR", "bpad_cnn"))
+
+# Function to calculate ICC for each pair
+calculate_ICC <- function(pair, group_label) {
+  ICC_result <- df %>% filter(dxgroupFK == group_label) %>%
+    select(all_of(pair)) %>%
+    DescTools::ICC(.)
+ }
+ 
+getICC <- function(pairs, g) {
+# Apply the function to each pair and store results in a list
+ICC_results <- lapply(pairs, function(p) calculate_ICC(p, g))
+
+ICC2 <- c()
+pair_names <- sapply(pairs, paste, collapse = "_vs_")
+names(ICC_results) <- pair_names
+ for (i in seq_along(ICC_results)) {
+
+  ICC_row2 <- ICC_results[[i]]$results[2,]
+  ICC_row2$pair_names <- pair_names[i]
+   ICC2 <- rbind(ICC_row2, ICC2)
+} 
+  return (ICC2) 
+}
+
+# Brain-PAD is less variable than Predicted brain age because the spread is smaller
+# So if we split the sample into BD vs. HC, then we expect that BD has higher correlation
+# among each other, and HC has lower correlation, because BD might have a wider spread than HC
+
+# This shows the agreement among the models in terms of the deviation from chronological age in terms of
+getICC(pairs_bpad, 'HC') %>% mutate(est = round(est, 2))  %>% arrange(est)%>% dplyr::select(c('pair_names', 'est'))  %>% arrange(est) %>%
+  kable("html") %>% 
+  kable_styling(bootstrap_options = c("striped",  "condensed"))
+
+getICC(pairs_bpad, 'BD') %>% mutate(est = round(est, 2))%>% dplyr::select(c('pair_names', 'est'))  %>% arrange(est) %>%
+  kable("html") %>% 
+  kable_styling(bootstrap_options = c("striped",  "condensed"))
+
+# this shows the agreement among the predicted ages across the models
+# high ICC shows that the predicted ages from a given pair of models are similar to each other
+# low ICC suggest there is variability in the predicted ages. 
+getICC(pairs_braingage, 'HC') %>% mutate(est = round(est, 2)) %>% mutate(est = round(est, 2))%>% dplyr::select(c('pair_names', 'est'))  %>% arrange(est) %>%
+  kable("html") %>% 
+  kable_styling(bootstrap_options = c("striped",  "condensed"))
+
+getICC(pairs_braingage, 'BD') %>% mutate(est = round(est, 2))  %>% arrange(est)%>% dplyr::select(c('pair_names', 'est')) %>%
+  kable("html") %>% 
+  kable_styling(bootstrap_options = c("striped",  "condensed"))
+  
+```
+ 

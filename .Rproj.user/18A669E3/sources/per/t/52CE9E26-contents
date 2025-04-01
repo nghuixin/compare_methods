@@ -1,0 +1,556 @@
+---
+title: "compare_four_models"
+author: "Hui Xin Ng"
+date: "2023-03-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+libraries <- c("dplyr", "tidyverse", "DescTools", "ggplot2", "readxl", "lme4"
+               , "ModelMetrics", "merTools", "lmtest", "emmeans", "haven", "lmerTest"
+               , "metaforest", "rstatix", "labelled", "data.table", 'irr')
+
+lapply(libraries, require , character.only = TRUE)
+
+```
+
+ 
+```{r cars}
+#cnn_df <- read.csv("../data_original/wood_2022_brainage.csv")
+
+path = file.path("../data_original/Master_BAI_080720_with_051517completers_060117imagingmaster_genotypes_brainages_ENIGMA_FS_MERGEFK_30122020.sav")
+
+original_df = read_sav(path)
+original_df <- original_df %>% dplyr::select("trnsctrw", "cwiisnrs","cwiisis", "cwiicns","fsrp5","stdyptid", 'visit', 'dxgroupFK', 'agevisit') %>% filter(!is.na(trnsctrw)|!is.na(fsrp5)) %>% arrange(stdyptid)
+original_df <- setDT(original_df)[, lapply(.SD, na.omit), by = stdyptid]
+
+temp <- original_df %>% dplyr::filter(visit == 0) 
+temp
+mod <- lm(dxgroupFK ~ agevisit, data = temp)
+summary(mod)
+
+
+names(original_df)
+
+```
+
+```{r}
+#df<-read.csv("../data_original/master_bai_merge_cnn_brainage.csv") # this file is created from the Jupyter notebook to produce the same 44 BD and 73 HC participants for analyses 
+df<-read.csv("../data_processed/df_all_brainage.csv") 
+
+df %>% group_by(dxgroupFK) %>%tally()
+```
+
+```{r}
+df <- df %>% dplyr::select('ridge_BrainAge',  'age_prediction', 'ageprediction_BrainAgeR' ,"cnn_BrainAge", "agevisit","stdyptid", "agevisit", "visit",  'gender','dxgroupFK'  )  
+ 
+ 
+df  <- df %>% mutate(Age2 = agevisit**2, Age3 = agevisit**3, 
+                     bpad_ridge = ridge_BrainAge - agevisit,
+                     bpad_photon = age_prediction - agevisit,
+                     bpad_BrainAgeR = ageprediction_BrainAgeR - agevisit,
+                     bpad_cnn = cnn_BrainAge - agevisit)
+
+df
+df <- setDT(df)[, lapply(.SD, na.omit), by = stdyptid] 
+df <- df %>% filter(!is.na(agevisit), visit == "Baseline") %>% unique()
+df <- merge(df, original_df, by = "stdyptid")
+
+
+```
+
+### Histogram of bpad across algorithms
+```{r}
+# ---- Distribution and Normality Test of Brain Predicted Age Difference ----- 
+ggplot(df, aes(x=bpad_ridge)) + # non-normal
+geom_histogram()+ theme_classic()
+shapiro.test(df$bpad_ridge)
+
+ggplot(df, aes(x=bpad_BrainAgeR)) + 
+  geom_histogram() + theme_classic()
+shapiro.test(df$bpad_BrainAgeR)
+
+ggplot(df, aes(x=bpad_photon)) + 
+  geom_histogram() + theme_classic()
+shapiro.test(df$bpad_photon)
+
+ggplot(df, aes(x=bpad_cnn)) + 
+  geom_histogram() + theme_classic()
+shapiro.test(df$bpad_cnn)
+
+# ---- Distribution and Normality Test of Brain Age ----- 
+ggplot(df, aes(x=ridge_BrainAge)) + 
+geom_histogram()+ theme_classic()
+shapiro.test(df$ridge_BrainAge)
+
+ggplot(df, aes(x=ageprediction_BrainAgeR)) + 
+  geom_histogram() + theme_classic()
+shapiro.test(df$ageprediction_BrainAgeR)
+
+ggplot(df, aes(x=age_prediction)) + 
+  geom_histogram() + theme_classic()
+shapiro.test(df$age_prediction)
+
+ggplot(df, aes(x=cnn_BrainAge)) +   # non-normal
+  geom_histogram() + theme_classic()
+shapiro.test(df$cnn_BrainAge)
+
+# Function to filter out data points outside of 3 SDs
+filter_outliers <- function(x) {
+  sd_x <- sd(x)
+  mean_x <- mean(x)
+  upper_limit <- mean_x + 3 * sd_x
+  lower_limit <- mean_x - 3 * sd_x
+  return(between(x, lower_limit, upper_limit))
+}
+
+df <- df %>%  
+  filter(filter_outliers(bpad_ridge),
+         filter_outliers(bpad_BrainAgeR),
+         filter_outliers(bpad_photon),
+         filter_outliers(bpad_cnn)) 
+
+# correlation between chronological age and brain-pad
+df %>% dplyr::select(bpad_ridge, bpad_photon , bpad_BrainAgeR ,bpad_cnn, dxgroupFK, gender, agevisit) %>%  melt(id = c('agevisit', 'dxgroupFK', 'gender'))%>% group_by(variable, dxgroupFK) %>% summarise(pval = as.numeric(cor.test(agevisit, value)[3]),                                                                correlation = cor(agevisit, value))%>% mutate(pval = round(pval, 3), correlation = round(correlation, 3))
+
+# correlation between chronological age and predicted age
+df %>% dplyr::select(ridge_BrainAge, ageprediction_BrainAgeR , age_prediction ,cnn_BrainAge, dxgroupFK, gender, agevisit) %>%  melt(id = c('agevisit', 'dxgroupFK', 'gender'))%>% group_by(variable, dxgroupFK) %>% summarise(pval = as.numeric(cor.test(agevisit, value)[3]),  correlation = cor(agevisit, value))%>% mutate(pval = round(pval, 3), correlation = round(correlation, 3)) %>% filter()
+
+pairs_braingage <- list(c("ridge_BrainAge", "ageprediction_BrainAgeR"),
+              c("ridge_BrainAge", "age_prediction"),
+              c("ridge_BrainAge", "cnn_BrainAge"),
+              c("ageprediction_BrainAgeR", "age_prediction"),
+              c("ageprediction_BrainAgeR", "cnn_BrainAge"),
+              c("age_prediction", "cnn_BrainAge"))
+
+pairs_bpad <- list(
+  c("bpad_ridge", "bpad_photon"),
+  c("bpad_ridge", "bpad_BrainAgeR"),
+  c("bpad_ridge", "bpad_cnn"),
+  c("bpad_photon", "bpad_BrainAgeR"),
+  c("bpad_photon", "bpad_cnn"),
+  c("bpad_BrainAgeR", "bpad_cnn"))
+
+# Function to calculate ICC for each pair
+calculate_ICC <- function(pair, group_label) {
+  ICC_result <- df %>% filter(dxgroupFK == group_label) %>%
+    select(all_of(pair)) %>%
+    DescTools::ICC(.)
+  return(ICC_result)
+}
+
+
+getICC <- function(pairs, g) {
+# Apply the function to each pair and store results in a list
+ICC_results <- lapply(pairs, function(p) calculate_ICC(p, g))
+
+ICC2 <- c()
+names(ICC_results) <- sapply(pairs, paste, collapse = "_vs_")
+names(ICC_results)
+for (i in seq_along(ICC_results)) {
+  ICC_row2 <- ICC_results[[i]]$results[2,]
+ 
+ICC2 <- rbind(ICC_row2, ICC2)
+}
+
+ICC2 <- cbind(names(ICC_results), ICC2)  
+  return (ICC2)
+}
+
+# Brain-PAD is less variable than Predicted brain age because the spread is smaller
+# So if we split the sample into BD vs. HC, then we expect that BD has higher correlation
+# among each other, and HC has lower correlation, because BD might have a wider spread than HC
+
+# This shows the agreement among the models in terms of the deviation from chronological age in terms of
+getICC(pairs_bpad, 'HC') %>% mutate(est = round(est, 2))
+
+# this shows the agreement among the predicted ages across the models
+# high ICC shows that the predicted ages from a given pair of models are similar to each other
+# low ICC suggest there is variability in the predicted ages. 
+getICC(pairs_braingage, 'HC') %>% mutate(est = round(est, 2))
+
+
+getICC(pairs_bpad, 'BD') %>% mutate(est = round(est, 2))
+getICC(pairs_braingage, 'BD') %>% mutate(est = round(est, 2))
+```
+
+```{r}
+# --- Correlation Matrix BPAD ---- 
+# Select the columns you want to calculate pairwise correlations 
+cor_data <-  df[, c("bpad_ridge", "bpad_photon", "bpad_BrainAgeR", "bpad_cnn")]
+# Calculate pairwise correlations
+correlation_matrix <- cor(cor_data)
+
+# Print correlation matrix
+round(correlation_matrix, 3)
+
+# --- Correlation Matrix Brain Age ---- 
+# Select the columns you want to calculate pairwise correlations for
+cor_data <-  df[, c("ridge_BrainAge", "age_prediction", "ageprediction_BrainAgeR", "cnn_BrainAge")]
+
+# Calculate pairwise correlations
+correlation_matrix <- cor(cor_data)
+
+# Print correlation matrix
+round(correlation_matrix, 3)
+```
+
+### Correlation between age and predicted age for all 4 models; seperate plots by group and separate lines by sex
+```{r }
+splot_titles <- c(ridge_BrainAge = 'Multimodal', age_prediction = 'PHOTON', ageprediction_BrainAgeR =  'BrainageR', cnn_BrainAge = 'DenseNet', BD= 'BD', HC = 'HC')
+
+df %>% dplyr::select(ridge_BrainAge, age_prediction, ageprediction_BrainAgeR , cnn_BrainAge , dxgroupFK, gender, agevisit) %>%  melt(id = c('agevisit', 'dxgroupFK', 'gender')) %>%
+  ggplot(aes(x = agevisit, y = value , color = factor(gender))) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +  # Add a linear regression line
+  labs(x = "Chronological Age", y = "Predicted Brain Age") +
+  theme_minimal() +
+  facet_grid(~ variable + dxgroupFK, label = as_labeller(splot_titles)) +  
+  geom_text(
+    data = . %>% group_by(variable,dxgroupFK) %>% summarise(correlation = cor(agevisit, value, use = "complete.obs" , method = "pearson")),
+    aes(x = Inf, y = -Inf, label = paste("r = ", round(correlation, 2)) ),
+    hjust = 1, vjust = -1,
+    color = "black"
+  ) + #s and add annotations
+  geom_text(
+    data = . %>% group_by(variable,dxgroupFK) %>% summarise(pval = as.numeric(cor.test(agevisit, value)[3])),
+    aes(x = Inf, y = -Inf, label =sprintf("p = %.2e", pval)),
+    hjust = 1, vjust = 0,
+    color = "black"
+  ) 
+ggsave(filename = "figures/predictedage_corr_age.jpeg"  ,dpi = 500, width = 12, height = 3)
+dev.off()
+
+```
+### Correlation between age and uncorrected brain-PAD for all 4 models 
+```{r}
+splot_titles <- c(bpad_ridge = 'Multimodal', bpad_photon = 'PHOTON', bpad_BrainAgeR =  'BrainageR', bpad_cnn = 'DenseNet', BD= 'BD', HC = 'HC')
+
+df %>% dplyr::select(bpad_ridge, bpad_photon , bpad_BrainAgeR ,bpad_cnn, dxgroupFK, gender, agevisit) %>%  melt(id = c('agevisit', 'dxgroupFK', 'gender')) %>%
+  ggplot(aes(x = agevisit, y = value )) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +  # Add a linear regression line
+  labs(x = "Chronological Age", y = "Uncorrected Brain-PAD") +
+  theme_minimal() +
+  facet_grid(~ variable , labeller = as_labeller(splot_titles)) + #s and add annotations
+  geom_text(
+    data = . %>% group_by(variable) %>% summarise(correlation = cor(agevisit, value, use = "complete.obs", method = "pearson")),
+    aes(x = Inf, y = -Inf, label = paste("r =", round(correlation, 2)) ),
+    hjust = 1, vjust = -1,
+    color = "black"
+  )  + #s and add annotations
+  geom_text(
+    data = . %>% group_by(variable) %>% summarise(pval = as.numeric(cor.test(agevisit, value)[3])),
+    aes(x = Inf, y = -Inf,  label =sprintf("p = %.2e", pval)),
+    hjust = 1, vjust = 0,
+    color = "black"
+  )   
+ggsave("figures/uncorrected_bpad_corr_age.jpeg",dpi = 500, width = 12, height = 3)
+dev.off()
+```
+
+### Correlation between age and uncorrected brain-PAD for all 4 models; seperate plots by group, separate lines by sex
+```{r fig.align="center", echo = FALSE,fig.width = 12, fig.height=6}
+splot_titles <- c(bpad_ridge = 'Multimodal', bpad_photon = 'PHOTON', bpad_BrainAgeR =  'BrainageR', bpad_cnn = 'DenseNet', BD= 'BD', HC = 'HC')
+df %>% dplyr::select(bpad_ridge, bpad_photon , bpad_BrainAgeR ,bpad_cnn, dxgroupFK, gender, agevisit) %>%  melt(id = c('agevisit', 'dxgroupFK', 'gender')) %>%
+  ggplot(aes(x = agevisit, y = value , color = factor(gender))) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +  # Add a linear regression line
+  labs(x = "Chronological Age", y = "Uncorrected Brain-PAD") +
+  theme_minimal() +
+  facet_grid(~ variable + dxgroupFK, labeller = as_labeller(splot_titles)) + #s and add annotations
+  geom_text(
+    data = . %>% group_by(variable,dxgroupFK) %>% summarise(correlation = cor(agevisit, value, use = "complete.obs", method = "pearson")),
+    aes(x = Inf, y = -Inf, label = paste("r =", round(correlation, 2)) ),
+    hjust= 1, vjust = -1,
+    color = "black"
+  )  + #s and add annotations
+  geom_text(
+    data = . %>% group_by(variable,dxgroupFK) %>% summarise(pval = as.numeric(cor.test(agevisit, value)[3])),
+    aes(x = Inf, y = -Inf, label =sprintf("p = %.2e", pval)),
+    hjust = 1, vjust = 0,
+    color = "black"
+  )   
+ggsave("figures/bpadresid_corr_age_bysexdx.jpeg",dpi = 500, width = 12, height = 3)
+dev.off()
+```
+
+### Brain-PAD Residuals from linear model with age, sex and group as predictors
+```{r}
+mod <- lm(bpad_photon ~  agevisit + gender + agevisit*gender ,data = df) 
+summary(mod)
+resid_bpad_photon <- resid(mod)
+
+mod <- lm(bpad_ridge ~ agevisit + gender  ,data = df)
+summary(mod)
+resid_bpad_ridge <- resid(mod)
+ 
+mod <- lm(bpad_BrainAgeR ~  agevisit + gender + agevisit*gender ,data = df)
+summary(mod)
+resid_bpad_BrainAgeR <- resid(mod) 
+mod <- lm(bpad_cnn ~ agevisit + gender  ,data = df)
+summary(mod)
+resid_bpad_cnn <- resid(mod)
+```
+
+
+### Correlation between corrected brain-PAD residuals and age for each model; seperate plots by group; seperate lines by sex
+```{r  }
+resids_df <- data.frame(df$agevisit, df$gender, df$dxgroupFK, resid_bpad_ridge,resid_bpad_photon,  resid_bpad_BrainAgeR, resid_bpad_cnn)
+print(resids_df)
+splot_titles <- c(resid_bpad_ridge = 'Multimodal', resid_bpad_photon = 'PHOTON', resid_bpad_BrainAgeR =  'BrainageR', resid_bpad_cnn = 'DenseNet', BD= 'BD', HC = 'HC')
+
+resids_df %>% dplyr::select(resid_bpad_ridge, resid_bpad_photon , resid_bpad_BrainAgeR ,resid_bpad_cnn, df.dxgroupFK, df.gender, df.agevisit) %>%  melt(id = c('df.agevisit', 'df.dxgroupFK', 'df.gender')) %>%
+  ggplot(aes(x = df.agevisit, y = value , color = factor(df.gender))) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +  # Add a linear regression line
+  labs(x = "Chronological Age", y = "Corrected Brain-PAD") +
+  theme_minimal() +
+  facet_grid(~ variable + df.dxgroupFK, label  = as_labeller(splot_titles))+ #s and add annotations
+  geom_text(
+    data = . %>% group_by(variable,df.dxgroupFK ) %>% summarise(correlation = cor(df.agevisit, value, use = "complete.obs", method = "pearson")),
+    aes(x = Inf, y = -Inf, label = paste("r =", round(correlation, 2)) ),
+    hjust = 1, vjust = -1,
+    color = "black"
+  )   + #s and add annotations
+  geom_text(
+    data = . %>% group_by(variable,df.dxgroupFK) %>% summarise(pval = as.numeric(cor.test(df.agevisit, value)[3])),
+    aes(x = Inf, y = -Inf, label = paste("p =", round(pval, 2)) ),
+    hjust = 1, vjust = 0,
+    color = "black"
+  )   
+ggsave("figures/bpadresid_corr_age_bysexdx.jpeg",dpi = 500, width = 12, height = 3)
+dev.off()
+```
+
+### Correlation between corrected brain-PAD residuals and age for each model; seperate plots by group
+```{r }
+resids_df <- data.frame(df$agevisit,   df$dxgroupFK, resid_bpad_ridge,resid_bpad_photon,  resid_bpad_BrainAgeR, resid_bpad_cnn)
+splot_titles <- c(resid_bpad_ridge = 'Multimodal', resid_bpad_photon = 'PHOTON', resid_bpad_BrainAgeR =  'BrainageR', resid_bpad_cnn = 'DenseNet', BD= 'BD', HC = 'HC')
+
+resids_df %>% dplyr::select(resid_bpad_ridge, resid_bpad_photon , resid_bpad_BrainAgeR ,resid_bpad_cnn, df.dxgroupFK, df.agevisit) %>%  melt(id = c('df.agevisit', 'df.dxgroupFK' )) %>%
+  ggplot(aes(x = df.agevisit, y = value )) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +  # Add a linear regression line
+  labs(x = "Chronological Age", y = "Corrected Brain-PAD")  +
+    scale_color_manual(values=c('black'))+
+  theme_minimal() +
+  facet_grid(~ variable + df.dxgroupFK, labeller = as_labeller(splot_titles))    + 
+geom_text(data = . %>% group_by(variable, df.dxgroupFK) %>% summarise(correlation = cor(df.agevisit, value, use = "complete.obs", method = "pearson")) %>% mutate(correlation = round(correlation, 2)), aes(x = Inf, y = -Inf, label = paste("r =", correlation)), hjust = 1, vjust = -1,  color = "black") + 
+geom_text(data = . %>% group_by(variable, df.dxgroupFK) %>% summarise(pval = as.numeric(cor.test(df.agevisit, value)[3]))%>% mutate(pval = round(pval, 3)), aes(x = Inf, y = -Inf, label =  paste('p = ',round(pval, 2)),hjust = 1, vjust = 0, color = "black" )) +
+  theme(legend.position="none")
+
+ggsave("figures/bpadresid_corr_age_bydx.jpeg",dpi = 500, width = 12, height = 3)
+dev.off()
+
+# Significance of correlations as indicated by p-val
+# Only Multimodal's correlation between brain-PAD residuals and age is significant
+resids_df %>% dplyr::select(resid_bpad_ridge, resid_bpad_photon , resid_bpad_BrainAgeR ,resid_bpad_cnn, df.dxgroupFK, df.agevisit) %>%  melt(id = c('df.agevisit', 'df.dxgroupFK' )) %>%group_by(variable, df.dxgroupFK) %>% summarise(pval = as.numeric(cor.test(df.agevisit, value)[3]))%>% mutate(pval = round(pval, 3)) 
+```
+
+### Correlation between corrected brain-PAD residuals and age for each model  
+```{r fig.align="center"}
+
+splot_titles <- c(resid_bpad_ridge = 'Multimodal', resid_bpad_photon = 'PHOTON', resid_bpad_BrainAgeR =  'BrainageR', resid_bpad_cnn = 'DenseNet')
+resids_df <- data.frame(df$agevisit,   df$dxgroupFK, resid_bpad_ridge, resid_bpad_photon,  resid_bpad_BrainAgeR, resid_bpad_cnn)
+
+
+resids_df %>% dplyr::select(resid_bpad_ridge, resid_bpad_photon , resid_bpad_BrainAgeR ,resid_bpad_cnn,   df.agevisit) %>%  melt(id = c('df.agevisit'  )) %>%
+  ggplot(aes(x = df.agevisit, y = value )) +
+  geom_point() +theme_minimal()+
+  geom_smooth(method = "lm", se = FALSE) +  # Add a linear regression line
+  labs(x = "Chronological Age", y = "Corrected Brain-PAD") +    scale_color_manual(values=c('black'))+
+  facet_grid(~ variable, labeller = as_labeller(splot_titles)) + #s and add annotations
+  geom_text(
+    data = . %>% group_by(variable) %>% summarise(correlation = cor(df.agevisit, value, use = "complete.obs", method = "pearson")),
+    aes(x = Inf, y = -Inf, label = sprintf("r = %.2e", correlation)), hjust = 1, vjust = -2,  color = "black"
+  ) + #s and add annotations
+  geom_text(
+    data = . %>% group_by(variable) %>% summarise(pval = as.numeric(cor.test(df.agevisit, value)[3]))%>% mutate(pval = round(pval, 2)),
+    aes(x = Inf, y = -Inf, label =  paste('p = ',pval),hjust = 1, vjust = -1 ,color = "black" )) +
+  theme(legend.position="none")
+
+ggsave("figures/corrected_bpadresid_corr_age.jpeg",dpi = 500, width = 12, height = 3)
+dev.off() 
+
+```
+
+
+### Model accounting for interaction between Dx and Age, Dx and Sex, and Age and Sex, and three way interaction between Dx Age and Sex in ALL four models
+```{r}
+ridgemod <- lm(bpad_ridge ~ dxgroupFK + gender +   agevisit + dxgroupFK*gender + dxgroupFK*agevisit + agevisit*gender + dxgroupFK*gender*agevisit  , data = df) 
+summary(ridgemod)$coefficients  %>%  kableExtra::kable(digit = 3)
+
+photonmod <- lm(bpad_photon ~ dxgroupFK + gender +   agevisit + dxgroupFK*gender + dxgroupFK*agevisit + agevisit*gender  +dxgroupFK*gender*agevisit , data = df) 
+summary(photonmod)$coefficients  %>% kableExtra::kable(digit = 3)
+
+brainageRmodThreeWay <- lm(bpad_BrainAgeR~ dxgroupFK + gender +   agevisit + dxgroupFK*gender + dxgroupFK*agevisit + agevisit*gender +dxgroupFK*gender*agevisit  , data = df) 
+summary(brainageRmodThreeWay)$coefficients  %>% kableExtra::kable(digit = 3)
+
+cnnmodThreeWay <- lm(bpad_cnn ~ dxgroupFK + gender +   agevisit + dxgroupFK*gender + dxgroupFK*agevisit + agevisit*gender  +dxgroupFK*gender*agevisit , data = df) 
+summary(cnnmodThreeWay)$coefficients  %>% kableExtra::kable(digit = 3)
+```
+
+### Model Selection for CNN model
+```{r}
+cnnmodNoThreeWay <- lm(bpad_cnn~ dxgroupFK + gender +   agevisit + dxgroupFK*gender + dxgroupFK*agevisit + agevisit*gender   , data = df) 
+summary(cnnmodNoThreeWay)$coefficients  %>% kableExtra::kable(digit = 3)
+anova(cnnmodNoThreeWay, cnnmodThreeWay, test = "Chisq")
+
+cnnmodNoDxAge<- lm(bpad_cnn~ dxgroupFK + gender +   agevisit + dxgroupFK*gender + agevisit*gender   , data = df) 
+summary(cnnmodNoDxAge)$coefficients  %>% kableExtra::kable(digit = 3)
+anova(cnnmodNoDxAge, cnnmodNoThreeWay, test = "Chisq")
+
+cnnmodDxSex<- lm(bpad_cnn~ dxgroupFK + gender +   agevisit + dxgroupFK*gender   , data = df) 
+summary(cnnmodDxSex)$coefficients  %>% kableExtra::kable(digit = 3)
+anova(cnnmodDxSex,  cnnmodNoDxAge, test = "Chisq")
+
+cnnmod <- lm(bpad_cnn~ dxgroupFK + gender +   agevisit   , data = df) 
+summary(cnnmod)$coefficients  %>% kableExtra::kable(digit = 3)
+# cnnmodNoDxAge
+```
+
+```{r}
+photonNoThreeWay <-lm(bpad_photon ~ dxgroupFK + gender +   agevisit + dxgroupFK*gender + dxgroupFK*agevisit + agevisit*gender , data = df)
+summary(photonNoThreeWay)$coefficients  %>% kableExtra::kable(digit = 3)
+anova(photonNoThreeWay, photonmod, test = "Chisq")
+
+photonNoDxAge<- lm(bpad_photon~ dxgroupFK + gender +   agevisit + dxgroupFK*gender + agevisit*gender   , data = df) 
+summary(photonNoDxAge)$coefficients  %>% kableExtra::kable(digit = 3)
+anova(photonNoDxAge, photonNoThreeWay, test = "Chisq")
+# brainageRmodNoDxAge
+```
+
+
+
+```{r}
+ridgeNoThreeWay <-lm(bpad_ridge ~ dxgroupFK + gender +   agevisit + dxgroupFK*gender + dxgroupFK*agevisit + agevisit*gender , data = df)
+summary(ridgeNoThreeWay)$coefficients  %>% kableExtra::kable(digit = 3)
+anova(ridgeNoThreeWay, ridgemod, test = "Chisq")
+
+ridgeNoDxAge<- lm(bpad_ridge~ dxgroupFK + gender +   agevisit + dxgroupFK*gender + agevisit*gender   , data = df) 
+summary(ridgeNoDxAge)$coefficients  %>% kableExtra::kable(digit = 3)
+anova(ridgeNoDxAge, ridgeNoThreeWay, test = "Chisq")
+
+
+ridgeNoSexAge<- lm(bpad_ridge~ dxgroupFK + gender +   agevisit + dxgroupFK*gender   , data = df) 
+summary(ridgeNoSexAge)$coefficients  %>% kableExtra::kable(digit = 3)
+anova(ridgeNoDxAge, ridgeNoSexAge, test = "Chisq")
+
+ridgeNoInteraction<- lm(bpad_ridge~ dxgroupFK + gender +   agevisit   , data = df) 
+summary(ridgeNoInteraction)$coefficients  %>% kableExtra::kable(digit = 3)
+anova(ridgeNoInteraction, ridgeNoSexAge, test = "Chisq")
+```
+
+
+### Model Selection for BrainAgeR
+````{r}
+brainageRmodNoThreeWay <- lm(bpad_BrainAgeR~ dxgroupFK + gender +   agevisit + dxgroupFK*gender + dxgroupFK*agevisit + agevisit*gender   , data = df) 
+summary(brainageRmodNoThreeWay)$coefficients  %>% kableExtra::kable(digit = 3)
+anova(brainageRmodThreeWay, brainageRmodNoThreeWay, test = "Chisq")
+
+brainageRmodNoDxAge<- lm(bpad_BrainAgeR~ dxgroupFK + gender +   agevisit + dxgroupFK*gender + agevisit*gender   , data = df) 
+summary(brainageRmodNoDxAge)$coefficients  %>% kableExtra::kable(digit = 3)
+anova(brainageRmodNoDxAge, brainageRmodNoThreeWay, test = "Chisq")
+
+brainageRmodDxSex<- lm(bpad_BrainAgeR~ dxgroupFK + gender +   agevisit + dxgroupFK*gender   , data = df) 
+summary(brainageRmodDxSex)$coefficients  %>% kableExtra::kable(digit = 3)
+anova(brainageRmodNoDxAge,  brainageRmodDxSex, test = "Chisq")
+
+brainageRmod <- lm(bpad_BrainAgeR~ dxgroupFK + gender +   agevisit   , data = df) 
+summary(brainageRmod)$coefficients  %>% kableExtra::kable(digit = 3)
+anova(brainageRmod,  brainageRmodDxSex, test = "Chisq")
+#brainageRmodNoDxAge
+
+```
+
+## Is brain-PAD predictive of dxgroup?
+```{r}
+mod<-lm(dxgroupFK~ bpad_cnn + gender +   agevisit + agevisit*gender   , data = df) 
+summary(mod)
+mod<- glm( dxgroupFK ~ bpad_photon*gender+ agevisit*gender  , data = df , family = "binomial") 
+summary(mod) 
+
+mod<- glm( dxgroupFK ~ bpad_BrainAgeR* gender + agevisit*gender , data = df, family = "binomial") 
+summary(mod)
+
+mod<- glm( dxgroupFK ~ bpad_ridge* gender +  agevisit*gender , data = df, family = "binomial") 
+summary(mod)
+
+```
+
+```{r}
+ 
+## absolute errors
+df <- df %>% mutate(ae_ridge = abs(ridge_BrainAge - agevisit),
+                     ae_photon = abs(age_prediction - agevisit),
+                     ae_BrainAgeR = abs(ageprediction_BrainAgeR - agevisit),
+                     ae_cnn =abs(cnn_BrainAge - agevisit)) %>%  
+                    dplyr::select(ae_ridge, ae_BrainAgeR, ae_photon ) 
+
+ # Calculate MAE for each model
+mae_ridge <- df %>%
+  summarise(mae_ridge = mean(ae_ridge))
+
+mae_photon <- df %>%
+  summarise(mae_photon = mean(ae_photon))
+
+mae_BrainAgeR <- df %>%
+  summarise(mae_BrainAgeR = mean(ae_BrainAgeR))
+
+mae_BrainAgeR <- df %>%
+  summarise(mae_cnn = mean(ae_cnn))
+
+# Combine the results into a single dataframe
+result_df <- bind_rows(mae_ridge, mae_photon, mae_BrainAgeR, r2_ridge, r2_photon, r2_BrainAgeR)
+
+result_df
+```
+
+
+```{r}
+### absolute errors
+AE_ICC <- df %>% mutate(ae_ridge = ridge_BrainAge - agevisit,
+                     ae_photon = abs(age_prediction - agevisit),
+                     ae_BrainAgeR = abs(ageprediction_BrainAgeR - agevisit),
+                     ae_cnn =abs(cnn_BrainAge - agevisit),
+                     age2 = agevisit*2) 
+
+res <-AE_ICC %>% dplyr::select(ae_ridge, ae_BrainAgeR) %>%  icc(., model = "oneway", type = "agreement")
+print('UCSD Multimodal & BrainageR')
+print(round(res$value,3))
+
+res <-AE_ICC %>% dplyr::select(ae_photon, ae_ridge) %>%  icc(., model = "oneway", type = "agreement")
+print('UCSD Multimodal & PHOTON')
+print(round(res$value,3))
+
+res <-AE_ICC %>% dplyr::select(ae_photon, ae_BrainAgeR) %>%  icc(., model = "oneway", type = "agreement")   
+print('PHOTON & BrainageR')
+print(round(res$value,3))
+
+
+res <-df %>% dplyr::select(ridge_BrainAge, ageprediction_BrainAgeR) %>% icc(., model = "oneway", type = "agreement")  
+print('UCSD Multimodal & BrainageR')
+print(round(res$value,3))
+
+res <-df %>% dplyr::select(age_prediction, ridge_BrainAge) %>% icc(., model = "oneway", type = "agreement")  
+print('UCSD Multimodal & PHOTON')
+print(round(res$value,3))
+
+res <-df %>% dplyr::select(age_prediction, ageprediction_BrainAgeR) %>% icc(., model = "oneway", type = "agreement")   
+print('PHOTON & BrainageR')
+print(round(res$value,3))
+
+res <- df %>% dplyr::select(bpad_ridge, bpad_BrainAgeR) %>%  icc(., model = "oneway", type = "agreement") 
+print('UCSD Multimodal & BrainageR')
+print(round(res$value,3))
+
+res <- df %>% dplyr::select(bpad_photon, bpad_ridge) %>%  icc(., model = "oneway", type = "agreement")   
+print('UCSD Multimodal & PHOTON')
+print(round(res$value,3))
+
+res <- df %>% dplyr::select(bpad_photon, bpad_BrainAgeR) %>%  icc(., model = "oneway", type = "agreement")
+print('PHOTON & BrainageR')
+print(round(res$value,3))
+
+```

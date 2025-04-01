@@ -1,0 +1,281 @@
+---
+title: "PLS_brain_maps"
+author: "Hui Xin Ng"
+date: "2023-03-26"
+output: html_document
+---
+### PLS Brain Visualizations
+### Corr between BrainPAD and free-surfer parcellated brain regions of the test (BD) and training set (HC)
+### NOTE MISSING VALUES IN SOME SUBJECTS, NEED TO CHECK
+```{r, echo = FALSE}
+libraries <- c("dplyr", "tidyverse", "DescTools", "ggplot2", "readxl", "lme4"
+               , "ModelMetrics", "merTools", "lmtest", "emmeans", "haven", "lmerTest"
+               , "ggplot2", "RNifti", "labelled", "ggseg", "reshape2", "rlang", "data.table" ,"colorspace", 'ggseg')
+
+#if (!require(libraries)) install.packages(libraries); library(libraries)
+lapply(libraries, require , character.only = TRUE)
+
+path = file.path("../data_original/Master_BAI_080720_with_051517completers_060117imagingmaster_genotypes_brainages_ENIGMA_FS_MERGEFK_30122020.sav")
+original_df = read_sav(path)
+
+original_df<-read.csv("../data_original/master_bai_merge_cnn_brainage.csv")
+original_df  <- original_df %>% mutate(#Age2 = agevisit^2, Age3 = agevisit^3, 
+                                      # bpad_PLS_BrainAge = PLS_BrainAge - agevisit,
+                                      # bpad_photon = age_prediction - agevisit,
+                                       #bpad_BrainAgeR = ageprediction_BrainAgeR -                                           agevisit, bpad_cnn = age_prediction - agevisit
+                                      )  %>%
+                              mutate(gender = ifelse(gender == "Male", 1, 0))%>%
+                              mutate(dxgroupFK = labelled(dxgroupFK)) %>%
+                              mutate(dxgroupFK = ifelse(dxgroupFK == "BD", 1, 0)) 
+# read csv where all brainages are contained 
+```
+
+```{r}
+df<-read.csv("../data_processed/df_all_brainage.csv") 
+# this file is created from the Jupyter notebook to produce the same 44 BD and 37 HC participants for analyses  
+df %>% group_by(dxgroupFK) %>% tally()
+
+df <- df %>% dplyr::select("stdyptid", 'gender','dxgroupFK' ,"visit", 
+                      'ridge_BrainAge','age_prediction','ageprediction_BrainAgeR',"cnn_BrainAge", "agevisit")
+ 
+df  <- df %>% mutate(bpad_ridge = ridge_BrainAge - agevisit,
+                     bpad_photon = age_prediction - agevisit,
+                     bpad_BrainAgeR = ageprediction_BrainAgeR - agevisit,
+                     bpad_cnn = cnn_BrainAge - agevisit,
+                     age2 = agevisit*2) %>%
+  group_by(stdyptid) %>%
+  mutate(across(everything(), ~na.omit(.)))
+
+# remove any rows where agevisit == NA and select raws where visit == 'Baseline'
+df <- df %>% filter(!is.na(agevisit), visit == "Baseline") %>% unique()%>%
+  mutate(gender = labelled(gender)) %>%
+  mutate(gender = ifelse(gender == "Male", 1, 0))%>%
+  mutate(dxgroupFK = labelled(dxgroupFK)) %>%
+  mutate(dxgroupFK = ifelse(dxgroupFK == "BD", 1, 0)) 
+
+merge(df, original_df, by )
+ 
+```
+
+```{r}
+new_df <- merge(df, original_df, by = c("stdyptid", 'dxgroupFK', 'gender', 'cnn_BrainAge', 'age_prediction', 'ageprediction_BrainAgeR', 'agevisit')) 
+# df <- df %>%  mutate(tmtb_a = trlnctrw - trnsctrw,
+#                      stroop1 = cwiirw - (cwicnrw+cwiwrrw)/2,
+#                      stroop2 = cwiisrw - (cwicnrw+cwiwrrw)/2)
+df
+
+
+```
+
+```{r}
+# generates a vector of the names of the 33 regions of interest by sorting and modifying the column names.
+
+# select left side grey matter volume, and remove banks because it does not exist for the right side
+FSvolume_L <- original_df %>%  dplyr::select(stdyptid,dxgroupFK, ends_with("L_V")) %>%  dplyr::select(-Banks_L_V)
+FSvolume_L
+# remove the suffix, and we have 33 regions total
+# filter out dxgroupFK, stdyptid and HC vol columns, we only want columns that exist in DKregions_check 
+colnames_L <- names(FSvolume_L)[3:35] %>% sort() %>% gsub("_L_V", "",.) # 33 regions
+
+# DKregions_check is a vector containing the names of the 33 regions of interest after removing "corpus callosum" and "bankssts", because banks does not exist for right side, and cc does not exist for both sides
+DKregions_check <- brain_regions(dk)[!brain_regions(dk) %in% c("corpus callosum", "bankssts")] %>% gsub(" ", "",.) # 33 regions, after removing 2, and remove the space between the column names
+
+sum(DKregions_check ==  colnames_L) # check if the column names match and are in the same order
+
+DKregions  <- brain_regions(dk)[!brain_regions(dk) %in% c("corpus callosum", "bankssts")]
+original_df %>% na.omit(.) %>% summarise_if(is.numeric, mean)
+FSvolume_L %>% na.omit(.) %>% summarise_if(is.numeric, sd)
+
+
+```
+
+```{r}
+# ==== Define a function called plotBrainMap that takes in three arguments: =====
+# df: a data frame containing the brain mapping data.
+# cortical_pos: a data frame containing the coordinates of cortical regions.
+# groups: an optional vector containing the grouping variable for the brain mapping data.
+
+plotBrainMap <- function(df, cortical_pos, groups = NULL){ # dkgroup  is hardcoded
+  if (!is.null(groups)) {
+    
+    p <- df %>% group_by(dxgroupFK) %>%
+      ggplot() +
+      geom_brain(atlas = dk, show.legend = TRUE, # Add a brain image using the geom_brain() function, specifying the atlas as dk and the coordinates as cortical_pos. 
+                 position = position_brain(cortical_pos),  
+                 # Use the scale_fill_continuous_divergingx() function to set the color palette to "RdBu" and the midpoint to 0.
+                 aes(fill = value)) +  scale_fill_continuous_divergingx(palette = 'RdBu', mid = 0 , limits = c(-0.8, 0.8))+theme_void()+facet_wrap(~dxgroupFK) 
+ 
+  } else { 
+    p <- df %>%
+      ggplot() +
+      geom_brain(atlas = dk, show.legend = TRUE,
+                 position = position_brain(cortical_pos), 
+                 aes(fill = value)) +
+      scale_fill_gradient(low = "red", high = "navy") +
+      theme_void()    
+  }
+  return(p)
+  
+}  
+geom_brain(atlas = aseg) + ggplot(aseg$data)
+# Function name: v_sa_tSelect
+# Input: df (a data frame)
+# Output: a ggplot object with corr between the selected features and Brain-PADs
+
+v_sa_tSelect <- function(df, hemi) {
+  
+  # Select columns in alphabetical order, relocate bpad_PLS_BrainAge, dxgroupFK to the last columns,
+  # drop the stdyptid column, and remove rows with missing values
+  FS_L_corrBPAD <- df %>% dplyr::select(order(colnames(.))) %>% relocate(stdyptid, bpad_ridge, dxgroupFK, .after = last_col()) %>%  dplyr::select(-stdyptid) %>% drop_na %>% 
+  
+  # Group the data by dxgroupFK and calculate the correlation of each column with bpad_PLS_BrainAge
+  group_by(dxgroupFK) %>% summarise_all(~cor(., bpad_ridge)) %>% 
+  
+  # Rename column names to include "_corr_bpad_pls" except for bpad_PLS_BrainAge and dxgroupFK columns,
+  # set the column names to include DKregions and bpad_PLS_BrainAge, and melt the data frame
+  rename_at(vars(-bpad_ridge, -dxgroupFK), ~paste0( ., "_corr_bpad_pls")) %>% 
+  set_names(c( 'dxgroupFK', DKregions , 'bpad_ridge' ))%>% melt() %>% 
+ 
+  # and filter out rows with region equal to "bpad_PLS_BrainAge"
+  mutate(variable = as.character(variable), 
+         value = as.numeric(value)) %>% 
+     # rename the variable column to region,
+    rename(region = variable) %>% filter(region  != "bpad_ridge")
+  
+  if (tolower(hemi) == "l") {
+    cortical_pos <- c("left lateral", "left medial")
+  } else {
+    cortical_pos <- c("right lateral", "right medial")
+  }
+  # Call the plotBrainMap function to create a brain map with the data and return it
+  #return (FS_L_corrBPAD %>% filter(value < -0.5))
+  print(FS_L_corrBPAD)
+  p <-plotBrainMap(FS_L_corrBPAD, cortical_pos, "dxgroupFK")
+  return(p)
+}
+
+```
+
+```{r}
+# Number of HC and BD do not match the dataset, we expect that there are no NAs
+FSvolume_L %>%  mutate_all(~replace(., is.na(.), 0)) %>% group_by(dxgroupFK) %>% tally() 
+FSvolume_L %>%  drop_na() %>% group_by(dxgroupFK) %>% tally() 
+original_df %>%  dplyr::select(stdyptid,dxgroupFK, ends_with("L_S")) #%>%  drop_na() %>% group_by(dxgroupFK) %>% tally() 
+ 
+```
+
+```{r}
+aseg$data$region
+
+aseg_df <- df %>%  
+ dplyr::select( dxgroupFK, bpad_ridge , 
+   Left_Amygdala, Right_Amygdala,
+   Left_Cerebellum_White_Matter, Right_Cerebellum_White_Matter,
+   Left_Cerebellum_Cortex, Right_Cerebellum_Cortex,
+   Left_Thalamus_Proper, Right_Thalamus_Proper,
+   Left_Caudate, Right_Caudate,
+   Left_Putamen, Right_Putamen,
+   Left_Pallidum, Right_Pallidum,
+   Left_Hippocampus, Right_Hippocampus, 
+   Left_VentralDC, Right_VentralDC,
+   Left_Lateral_Ventricle, Right_Lateral_Ventricle,
+   Left_Cerebellum_White_Matter, Right_Cerebellum_White_Matter,
+   Left_Cerebellum_Cortex, Right_Cerebellum_Cortex, Third_Ventricle, Fourth_Ventricle, Brain_Stem #%>%    dplyr::select( dxgroupFK, bpad_PLS_BrainAge , starts_with("Left_")) 
+ )  %>% relocate(   bpad_ridge, dxgroupFK, .after = last_col()) %>%   drop_na %>% rename(`3rd ventricle` = Third_Ventricle, `4th ventricle` = Fourth_Ventricle, `brain stem` = Brain_Stem) 
+ 
+ melt_aseg_df <- aseg_df %>%
+  # Group the data by dxgroupFK and calculate the correlation of each column with bpad_PLS_BrainAge  #%>%  rename_at(vars(  -dxgroupFK), ~paste0( ., "_corr_bpad_pls")) 
+  group_by(dxgroupFK) %>% summarise_all(~cor(., bpad_ridge)) %>% dplyr::select(-bpad_ridge)  %>% melt() %>% 
+  mutate(hemi = ifelse(str_detect(variable, "^Left_"), "left", "right"),  variable = str_replace(variable, "^Left_|^Right_", "") ) %>%   mutate(variable = ifelse(variable != "VentralDC", tolower(str_replace_all(variable, "_", " ")), "ventral DC"),hemi = ifelse(variable %in% c('4th ventricle', '3rd ventricle', 'brain stem'),   "midline", hemi)) %>% 
+     # rename the variable column to region,
+    rename(region = variable)   
+ 
+merged_df <- merge(melt_aseg_df, aseg$data)
+merged_df
+
+
+```
+```{r}
+merged_df %>%group_by(dxgroupFK) %>% ggplot(aes(fill = value)) + geom_brain(atlas = aseg) +  scale_fill_continuous_divergingx(palette = 'RdBu', mid = 0 , limits = c(-0.5, 0.5))+theme_void()#+facet_wrap(~dxgroupFK) 
+ 
+ melt_aseg_df <-  aseg_df %>%
+  # Group the data by dxgroupFK and calculate the correlation of each column with bpad_PLS_BrainAge  #%>%  rename_at(vars(  -dxgroupFK), ~paste0( ., "_corr_bpad_pls")) 
+  group_by(dxgroupFK) %>% summarise_all(~cor(., bpad_ridge)) %>% dplyr::select(-bpad_ridge)  %>% tidyr::pivot_longer(-dxgroupFK, names_to = "variable" ) %>%
+  unnest(value) %>% 
+  mutate(hemi = ifelse(str_detect(variable, "^Left_"), "left", "right"),  variable = str_replace(variable, "^Left_|^Right_", "") ) %>%   mutate(variable = ifelse(variable != "VentralDC", tolower(str_replace_all(variable, "_", " ")), "ventral DC"),hemi = ifelse(variable %in% c('4th ventricle', '3rd ventricle', 'brain stem'),   "midline", hemi)) %>% 
+     # rename the variable column to region,
+    rename(region = variable) 
+  
+merged_df <- merge(melt_aseg_df, aseg$data)
+merged_df %>%group_by(dxgroupFK) %>% ggplot(aes(fill = value)) + geom_brain(atlas = aseg) +  scale_fill_continuous_divergingx(palette = 'RdBu', mid = 0 , limits = c(-0.75, 0.75))+theme_void()+facet_wrap(~dxgroupFK) 
+```
+
+
+
+
+### Create brain map of correlation between volume and Brain-PAD for left and right hemi
+```{r}
+ 
+FSvolume_L <-  df %>% dplyr::select(stdyptid, dxgroupFK, bpad_ridge ,  ends_with("L_V")) %>% dplyr::select(-Banks_L_V, -HC_combined_L_V) 
+FSvolume_R <- df %>% dplyr::select(stdyptid, dxgroupFK, bpad_ridge ,  ends_with("R_V")) %>% dplyr::select(-HC_combined_R_V)
+
+FSvolume_R  
+
+
+v_sa_tSelect(FSvolume_L, "l")
+ggsave("figures/FSvolume_L_corrBPAD_PLS.png")
+v_sa_tSelect(FSvolume_R, "r")
+ggsave("figures/FSvolume_R_corrBPAD_PLS.png")
+```
+
+### Create brain map of correlation between Surface Area and Brain-PAD for left and right hemi
+```{r}
+FSsurfarea_L <- original_df %>% dplyr::select(stdyptid, dxgroupFK, bpad_PLS_BrainAge ,  ends_with("_L_S")) %>% dplyr::select(-Banks_STS_L_S)  
+FSsurfarea_R <- original_df %>% dplyr::select(stdyptid, dxgroupFK, bpad_PLS_BrainAge ,  ends_with("_R_S"))  
+
+v_sa_tSelect(FSsurfarea_L, "l")
+ggsave("figures/FSsurfarea_L_corrBPAD_PLS.png")
+
+v_sa_tSelect(FSsurfarea_R, "r")
+ggsave("figures/FSsurfarea_R_corrBPAD_PLS.png")
+
+```
+
+### Create brain map of correlation between cortical thickness and Brain-PAD for left and right hemi
+```{r}
+FSthickness_L <- original_df %>% dplyr::select(stdyptid, dxgroupFK, bpad_PLS_BrainAge , caudalanteriorcingulate_L_T,    ends_with("_L")) %>% dplyr::select(-c('totalavgCT_L', 'totalSA_L', 'totalGMvolume_L', 'Banks_L' ))
+FSthickness_R <- original_df %>% dplyr::select(stdyptid, dxgroupFK, bpad_PLS_BrainAge ,  ends_with("_R")) %>% dplyr::select(-c('totalavgCT_R', 'totalSA_R', 'totalGMvolume_R', 'Banks_R','basis_r'))
+
+v_sa_tSelect(FSthickness_L, "l")
+ggsave("figures/FSthickness_L_corrBPAD_PLS.png")
+v_sa_tSelect(FSthickness_R, "r") 
+ggsave("figures/FSthickness_R_corrBPAD_PLS.png")
+# pars opercularis, pars triangularis	corr < -0.5
+```
+
+
+### ARCHIVED ANALYSES
+### Plot brain map using DK Atlas for Participant BD014
+Cortical parcellations were based on the Desikan/Killiany atlas
+- corpus callosum,  a thick bundle of nerve fibers that connects the two cerebral hemispheres
+- banks of the superior temporal sulcus is often removed as part of the DKT protocol
+```{r}
+plotBrainMap(FSvolume_R, c("right lateral", "right medial")) 
+
+plotBrainMap(FSvolume_L, c("left lateral", "left medial")) 
+```
+
+### Get grey matter volume for both left and right hemispheres for BD014
+```{r}
+FSvolume_L<-original_df %>% dplyr::select(stdyptid, ends_with("L_V")) %>%  dplyr::select(-Banks_L_V, -HC_combined_L_V) %>%  dplyr::select(order(colnames(.))) %>% relocate(stdyptid, .after = last_col()) %>%  filter(stdyptid =="BD014")    %>% 
+  set_names(c(DKregions, "stdyptid"  ))%>%   melt(id = "stdyptid")  %>%  
+  mutate(groups = "left")%>%
+  mutate(variable = as.character(variable), 
+         value = as.numeric(value)) %>% rename(region = variable)# banks v does not exist for right side
+
+FSvolume_R<- original_df %>% dplyr::select(stdyptid, ends_with("R_V")) %>% dplyr::select(  -HC_combined_R_V) %>% dplyr:: select(order(colnames(.))) %>% relocate(stdyptid, .after = last_col()) %>%  filter(stdyptid =="BD014") %>%   set_names(c( DKregions, "stdyptid"))%>%   melt(id = "stdyptid")  %>%  
+  mutate(groups = "right") %>%
+  mutate(variable = as.character(variable), 
+         value = as.numeric(value)) %>% rename(region = variable)# banks v does not exist for right side
+
+```
