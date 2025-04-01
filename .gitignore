@@ -6,9 +6,9 @@
 *.Rproj
 
 # renv (if not tracking dependencies)
-# renv/
+renv/
 # renv.lock  # uncomment if you want to ignore it too
-
+# The renv.lock file is a json file listing all the packages, as well as their dependencies, that are used for the project. 
 # Python
 __pycache__/
 *.pyc
