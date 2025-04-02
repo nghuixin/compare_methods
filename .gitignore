@@ -12,7 +12,7 @@ renv/
 # Python
 __pycache__/
 *.pyc
-
+__init__.py
 # Jupyter
 .ipynb_checkpoints/
 

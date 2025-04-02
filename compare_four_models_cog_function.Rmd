@@ -17,7 +17,7 @@ pckgs %in% loadedNamespaces()
 
 ```
 
-# Functions
+# HELPER FUNCTIONS
 ```{r}
 # function to test whether data is normally distributed
 test_normality <- function(data) {
@@ -190,14 +190,9 @@ ggplot(df, aes(x = agevisit, fill = factor(dxgroupFK))) +
        x = "Chronological Age",
        y = "Density",
        fill = "Group") + theme_classic()
-
-  
-
 ```
-
+# DATA CLEANING OF COGNITION VARIABLES
 ### Cognitive Performance Scores as predictor of brain-PAD 
- 
-
 ### Cognitive scores distribution and summary stats of both BD and HC
 ```{r}
 # Select column by index position
@@ -324,6 +319,10 @@ outliers_removed_df_pc <- cbind(as.data.frame(outliers_removed_df), pca_result$s
 
 # View the final dataframe with PCA scores
 outliers_removed_df_pc
+```
+
+### cleaned dataset used for examining relationship between cognitive performance (PC1) and residualized brain-PADs from all four models
+```{r}
 write.csv(outliers_removed_df_pc, 'data_processed/outliers_removed_cognitive_test_scores.csv')
 
 ```
@@ -343,6 +342,9 @@ plot(1:length(variance_explained), variance_explained, type = "b",
 variance_explained
 ```
 
+
+
+# ANALYSIS
 # Linear regression model with bpad as outcome variable
 ### Ridge Bpad
 ```{r}
@@ -424,7 +426,7 @@ plot1 <- base_plot +
   geom_richtext(aes(label = paste0("R<sup>2</sup> = ", format(round(r2_values_BrainAgeR, digits=3), nsmall = 2) ), x = Inf, y = -Inf, hjust = 1, vjust = -0.5), color = 'black') +
   labs(x = "Residual Brain-PAD", title = "BrainageR")
 
-jpeg('figures/lm_PC1_resid_bpad_BrainAgeR', width = 4000, height = 4000, units = "px", res = 500)
+jpeg('figures/lm_PC1_resid_bpad_BrainAgeR.jpeg', width = 4000, height = 4000, units = "px", res = 500)
 plot1
 dev.off()
 ```
@@ -447,7 +449,7 @@ plot2 <- base_plot +
 
 
 
-jpeg('figures/lm_PC1_resid_bpad_photon', width = 4000, height = 4000, units = "px", res = 500)
+jpeg('figures/lm_PC1_resid_bpad_photon.jpeg', width = 4000, height = 4000, units = "px", res = 500)
 plot2
 dev.off()
 ```
@@ -464,6 +466,9 @@ base_plot <- ggplot(outliers_removed_df_pc, aes(x = resid_bpad_cnn, y = PC1, col
 
 
 r2_values_cnn <- summary(lm(PC1 ~ resid_bpad_cnn, data = outliers_removed_df_pc))$r.squared
+
+
+
 jpeg('figures/lm_PC1_resid_bpad_cnn.jpeg', width = 4000, height = 4000, units = "px", res = 500)
 plot3 <- base_plot +  geom_richtext(aes(label = paste0("R<sup>2</sup> = ", format(round(r2_values_cnn, digits=3), nsmall = 2) ), x = Inf, y = -Inf, hjust = 1, vjust = -0.5), color = 'black') + labs(x = "Residual Brain-PAD",title = "MIDI")
 plot3
@@ -484,7 +489,11 @@ r2_values_ridge <- summary(lm(PC1 ~ resid_bpad_ridge, data = filtered_df ))$r.sq
 plot4 <- base_plot +
   geom_richtext(aes(label = paste0("R<sup>2</sup> = ", format(round(r2_values_ridge, digits=3), nsmall = 2) ), x = Inf, y = -Inf, hjust = 1, vjust = -0.5), color = 'black') +
   labs(x = "Residual Brain-PAD", title = 'UCSD Multimodal')
-plot4 
+
+jpeg('figures/lm_PC1_resid_bpad_ridge.jpeg', width = 4000, height = 4000, units = "px", res = 500)
+ 
+plot4
+dev.off() 
 ```
  
 ```{r}
@@ -492,7 +501,7 @@ plot4
 df_long <- reshape2::melt(cog_test_scores)
 
 # Open JPEG device
-jpeg("cog_performance_scores_distribution.jpeg", width = 1200, height = 800, quality = 100)
+jpeg("figures/cog_performance_scores_distribution.jpeg", width = 1200, height = 800, quality = 100)
 
 # Plot and save
 ggplot(df_long, aes(x = value, fill = dxgroupFK)) +
@@ -527,6 +536,8 @@ log_transformed %>% reshape2::melt(.) %>%ggplot(., aes(x = value, fill=dxgroupFK
 
 # Specify the columns to select from df2
 selected_columns <- c("dxgroupFK", "gender", "agevisit", "stdyptid", 'bpad_photon', 'bpad_ridge', 'bpad_BrainAgeR', 'bpad_cnn', 'age_prediction', 'ageprediction_BrainAgeR', 'ridge_BrainAge', 'cnn_BrainAge')
+
+
 ```
 
 
