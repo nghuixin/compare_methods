@@ -16,7 +16,6 @@ lapply(libraries, require , character.only = TRUE)
 
  
 ```{r cars}
-#cnn_df <- read.csv("../data_original/wood_2022_brainage.csv")
 
 path = file.path("../data_original/Master_BAI_080720_with_051517completers_060117imagingmaster_genotypes_brainages_ENIGMA_FS_MERGEFK_30122020.sav")
 

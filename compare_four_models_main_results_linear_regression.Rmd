@@ -58,6 +58,7 @@ summary(cnnmodThreeWay)$coefficients  %>% kableExtra::kable(digit = 3)
 ```
 
 ### Model Selection for CNN model
+model selected: lm(bpad_cnn~ dxgroupFK + gender +   agevisit, data = df) 
 ```{r}
 cnnmodNoThreeWay <- lm(bpad_cnn~ dxgroupFK + gender +   agevisit + dxgroupFK*gender + dxgroupFK*agevisit + agevisit*gender   , data = df) 
 summary(cnnmodNoThreeWay)$coefficients  %>% kableExtra::kable(digit = 3)
@@ -73,8 +74,13 @@ anova(cnnmodDxSex,  cnnmodNoDxAge, test = "Chisq")
 
 cnnmod <- lm(bpad_cnn~ dxgroupFK + gender +   agevisit   , data = df) 
 summary(cnnmod)$coefficients  %>% kableExtra::kable(digit = 3)
+anova(cnnmodDxSex,  cnnmod, test = "Chisq")
 # cnnmodNoDxAge
 ```
+
+
+### PHOTON Model
+Model selected: lm(bpad_photon ~ dxgroupFK + gender +   agevisit + dxgroupFK*gender + dxgroupFK*agevisit + agevisit*gender  +dxgroupFK*gender*agevisit , data = df) 
 
 ```{r}
 photonNoThreeWay <-lm(bpad_photon ~ dxgroupFK + gender +   agevisit + dxgroupFK*gender + dxgroupFK*agevisit + agevisit*gender , data = df)
@@ -87,7 +93,8 @@ anova(photonNoDxAge, photonNoThreeWay, test = "Chisq")
 # brainageRmodNoDxAge
 ```
 
-
+### Multimodal Ridge Model
+Model selected: lm(bpad_ridge ~ dxgroupFK + gender +   agevisit + dxgroupFK*gender + dxgroupFK*agevisit + agevisit*gender , data = df)
 
 ```{r}
 ridgeNoThreeWay <-lm(bpad_ridge ~ dxgroupFK + gender +   agevisit + dxgroupFK*gender + dxgroupFK*agevisit + agevisit*gender , data = df)
@@ -110,6 +117,7 @@ anova(ridgeNoInteraction, ridgeNoSexAge, test = "Chisq")
 
 
 ### Model Selection for BrainAgeR
+model selected: lm(bpad_BrainAgeR~ dxgroupFK + gender +   agevisit   , data = df) 
 ````{r}
 brainageRmodNoThreeWay <- lm(bpad_BrainAgeR~ dxgroupFK + gender +   agevisit + dxgroupFK*gender + dxgroupFK*agevisit + agevisit*gender   , data = df) 
 summary(brainageRmodNoThreeWay)$coefficients  %>% kableExtra::kable(digit = 3)
@@ -126,36 +134,33 @@ anova(brainageRmodNoDxAge,  brainageRmodDxSex, test = "Chisq")
 brainageRmod <- lm(bpad_BrainAgeR~ dxgroupFK + gender +   agevisit   , data = df) 
 summary(brainageRmod)$coefficients  %>% kableExtra::kable(digit = 3)
 anova(brainageRmod,  brainageRmodDxSex, test = "Chisq")
-#brainageRmodNoDxAge
+
 
 ```
 
 ## Is brain-PAD predictive of dxgroup?
 ```{r}
-mod<-glm(dxgroupFK~ bpad_cnn   + agevisit*gender  , data = df , family = "binomial") 
+mod<-glm(dxgroupFK~ bpad_cnn   + gender + agevisit  , data = df , family = "binomial") 
 summary(mod)
 
-mod<- glm( dxgroupFK ~ bpad_photon*gender+ agevisit*gender  , data = df , family = "binomial") 
+mod<- glm(dxgroupFK ~ bpad_photon*agevisit*gender  , data = df , family = "binomial") 
 summary(mod) 
 
-mod<- glm( dxgroupFK ~ bpad_BrainAgeR* gender + agevisit*gender , data = df, family = "binomial") 
+mod<- glm( dxgroupFK ~ bpad_BrainAgeR + gender + agevisit , data = df, family = "binomial") 
 summary(mod)
 
-mod<- glm( dxgroupFK ~ bpad_ridge* gender +  agevisit*gender , data = df, family = "binomial") 
+mod<- glm( dxgroupFK ~ bpad_ridge* gender +  agevisit*gender+  agevisit*bpad_ridge , data = df, family = "binomial") 
 summary(mod)
-
 ```
 
 ```{r}
-
 ## absolute errors
 df <- df %>% mutate(ae_ridge = abs(ridge_BrainAge - agevisit),
                      ae_photon = abs(age_prediction - agevisit),
                      ae_BrainAgeR = abs(ageprediction_BrainAgeR - agevisit),
-                     ae_cnn = abs(cnn_BrainAge - agevisit)) #%>%  
-                   # dplyr::select(ae_ridge, ae_BrainAgeR, ae_photon ) 
+                     ae_cnn = abs(cnn_BrainAge - agevisit))  
 
- # Calculate MAE for each model
+# Calculate MAE for each model
 mae_ridge <- df %>%
   summarise(mae_ridge = mean(ae_ridge, na.rm = TRUE))
 
@@ -170,8 +175,6 @@ mae_cnn <- df %>%
 
 # Combine the results into a single dataframe
 result_df <- bind_rows(mae_ridge, mae_photon, mae_BrainAgeR, mae_cnn)
-result_df
- 
 ```
 
 
@@ -265,8 +268,8 @@ dev.off()
 
 ### Correlation between corrected brain-PAD residuals and age for each model; seperate plots by group
 ```{r }
-resids_df <- data.frame(df$agevisit,   df$dxgroupFK, resid_bpad_ridge,resid_bpad_photon,  resid_bpad_BrainAgeR, resid_bpad_cnn)
-splot_titles <- c(resid_bpad_ridge = 'Multimodal', resid_bpad_photon = 'PHOTON', resid_bpad_BrainAgeR =  'BrainageR', resid_bpad_cnn = 'DenseNet', BD= 'BD', HC = 'HC')
+# resids_df <- data.frame(df$agevisit,   df$dxgroupFK, resid_bpad_ridge,resid_bpad_photon,  resid_bpad_BrainAgeR, resid_bpad_cnn)
+splot_titles <- c(resid_bpad_ridge = 'Multimodal', resid_bpad_photon = 'PHOTON', resid_bpad_BrainAgeR =  'BrainageR', resid_bpad_cnn = 'DenseNet', `0` = 'HC',  `1` = 'BD')
 
 resids_df %>% dplyr::select(resid_bpad_ridge, resid_bpad_photon , resid_bpad_BrainAgeR ,resid_bpad_cnn, df.dxgroupFK, df.agevisit) %>%  melt(id = c('df.agevisit', 'df.dxgroupFK' )) %>%
   ggplot(aes(x = df.agevisit, y = value )) +
@@ -292,7 +295,7 @@ resids_df %>% dplyr::select(resid_bpad_ridge, resid_bpad_photon , resid_bpad_Bra
 ```{r fig.align="center"}
 
 splot_titles <- c(resid_bpad_ridge = 'Multimodal', resid_bpad_photon = 'PHOTON', resid_bpad_BrainAgeR =  'BrainageR', resid_bpad_cnn = 'DenseNet')
-resids_df <- data.frame(df$agevisit,   df$dxgroupFK, resid_bpad_ridge, resid_bpad_photon,  resid_bpad_BrainAgeR, resid_bpad_cnn)
+# resids_df <- data.frame(df$agevisit,   df$dxgroupFK, resid_bpad_ridge, resid_bpad_photon,  resid_bpad_BrainAgeR, resid_bpad_cnn)
 
 
 resids_df %>% dplyr::select(resid_bpad_ridge, resid_bpad_photon , resid_bpad_BrainAgeR ,resid_bpad_cnn,   df.agevisit) %>%  melt(id = c('df.agevisit'  )) %>%
