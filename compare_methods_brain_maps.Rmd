@@ -263,15 +263,25 @@ FSsurfarea_L <-merge(original_df_unique, only_bpad_ridge_df, by = c('stdyptid'))
 original_df_unique <- original_df %>%  dplyr::select(ends_with("R_S"), -ends_with("age"), stdyptid, dxgroupFK)
 FSsurfarea_R <-merge(original_df_unique, only_bpad_ridge_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
 
-v_sa_tSelect(FSsurfarea_L, "l")
+v_sa_tSelect(FSsurfarea_L,"output/data/freesurfer_surface_area_corr_bpad_left.csv", "l")
 ggsave("output/figures/FSsurface_area_L_corr_brainpad_Ridge.png")
 
-v_sa_tSelect(FSsurfarea_R, "r")
+v_sa_tSelect(FSsurfarea_R,"output/data/freesurfer_surface_area_corr_bpad_right.csv", "r")
 ggsave("output/figures/FSsurface_area_R_corr_brainpad_Ridge.png")
 
 
 FSsurfarea_L %>% write.csv("output/data/freesurfer_gray_surface_area_left.csv")
 FSsurfarea_R %>% write.csv("output/data/freesurfer_gray_surface_area_right.csv")
+
+
+
+
+
+v_sa_tSelect(FSvolume_L,"output/data/freesurfer_volume_corr_bpad_left.csv", "l")
+ggsave("output/figures/FSvolume_L_corr_brainpad_Ridge.png")
+
+v_sa_tSelect(FSvolume_R,"output/data/freesurfer_volume_corr_bpad_right.csv", "r")
+ggsave("output/figures/FSvolume_R_corr_brainpad_Ridge.png")
 ```
 
 ### Create brain map of correlation between cortical thickness and Brain-PAD for left and right hemi
@@ -290,11 +300,11 @@ FSthickness_R <- original_df %>% dplyr::select(stdyptid, dxgroupFK ,  ends_with(
 FSthickness_R <-merge(FSthickness_R, only_bpad_ridge_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
 
 
-v_sa_tSelect(FSthickness_L, "l")
+v_sa_tSelect(FSthickness_L, "output/data/freesurfer_thickness_corr_bpad_left.csv", "l")
 ggsave("output/figures/FSsthickness_L_corr_brainpad_Ridge.png")
 
 
-v_sa_tSelect(FSthickness_R, "r") 
+v_sa_tSelect(FSthickness_R , "output/data/freesurfer_thickness_corr_bpad_right.csv", "r") 
 ggsave("output/figures/FSsthickness_R_corr_brainpad_Ridge.png")
 
 
