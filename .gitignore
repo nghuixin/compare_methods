@@ -25,3 +25,9 @@ data_processed/
 # Misc
 *.tmp
 *~
+*.log
+
+!renv/settings.json
+
+.DS_Store
+

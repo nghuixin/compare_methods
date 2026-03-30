@@ -58,6 +58,8 @@ df  <- df %>% mutate(Age2 = agevisit**2, Age3 = agevisit**3,
                      bpad_photon = age_prediction - agevisit,
                      bpad_BrainAgeR = ageprediction_BrainAgeR - agevisit,
                      bpad_cnn = cnn_BrainAge - agevisit)
+
+
 ```
 
 # Helper functions
@@ -69,9 +71,7 @@ filter_outliers <- function(x) {
   upper_limit <- mean_x + 3 * sd_x
   lower_limit <- mean_x - 3 * sd_x
   return(between(x, lower_limit, upper_limit))
-
 }
-
 
 # Function to plot distribution and run Shapiro-Wilk test, Apply function to each Brain-PAD variable by group
 plot_and_test <- function(df, variable, plot_type = "density", fill_color = NULL, legend_labels = NULL, legend_title = "Group", x_label = NULL, y_label = NULL) 
@@ -91,6 +91,10 @@ print(p) # Print plot
 
 # Distribution and Normality Test of Brain-PAD 
 ```{r}
+
+plot_and_test(df, "agevisit", fill_color = "dxgroupFK", legend_labels = c("HC", "BD"), legend_title = "Group", x= 'Chronological Age', y='Density')
+
+
 df <- df %>%
   filter(filter_outliers(bpad_ridge),
          filter_outliers(bpad_BrainAgeR),
@@ -98,24 +102,46 @@ df <- df %>%
          filter_outliers(bpad_cnn))
 
 # Example usage of the function for your variables
-plot_and_test(df, "bpad_ridge", fill_color = "dxgroupFK", legend_labels = c("HC", "BD"), legend_title = "Group", x= 'Brain-PAD (Multimodal)', y='Density')
-#ggsave("output/figures/density_plot_bpad_ridge.jpeg",dpi = 500, width = 12, height = 3)
+plot_and_test(df, "bpad_ridge", fill_color = "dxgroupFK", legend_labels = c("HC", "BD"), legend_title = "Group", x= 'Multimodal Brain-PAD', y='Density')
+ggsave("output/figures/density_plot_bpad_ridge.jpeg",dpi = 500, width = 5, height = 5)
 dev.off()
 
 # Example usage of the function for your variables
-plot_and_test(df, "bpad_photon", fill_color = "dxgroupFK", legend_labels = c("HC", "BD"), legend_title = "Group", x= 'Brain-PAD (PHOTON-AI)', y='Density')
-#ggsave("output/figures/density_plot_bpad_photon.jpeg",dpi = 500, width = 12, height = 3)
+plot_and_test(df, "bpad_photon", fill_color = "dxgroupFK", legend_labels = c("HC", "BD"), legend_title = "Group", x= 'PHOTON Brain-PAD', y='Density')
+ggsave("output/figures/density_plot_bpad_photon.jpeg",dpi = 500, width = 5, height = 5)
 dev.off()
 
 # Example usage of the function for your variables
-plot_and_test(df, "bpad_BrainAgeR", fill_color = "dxgroupFK", legend_labels = c("HC", "BD"), legend_title = "Group", x= 'Brain-PAD (BrainageR)', y='Density')
-#ggsave("output/figures/density_plot_bpad_BrainAgeR.jpeg",dpi = 500, width = 12, height = 3)
+plot_and_test(df, "bpad_BrainAgeR", fill_color = "dxgroupFK", legend_labels = c("HC", "BD"), legend_title = "Group", x= 'BrainageR Brain-PAD', y='Density')
+ggsave("output/figures/density_plot_bpad_BrainAgeR.jpeg",dpi = 500, width = 5, height = 5)
 dev.off()
  
  # Example usage of the function for your variables
-plot_and_test(df, "bpad_cnn", fill_color = "dxgroupFK", legend_labels = c("HC", "BD"), legend_title = "Group", x= 'Brain-PAD (MIDI)', y='Density')
-#ggsave("output/figures/density_plot_bpad_cnn.jpeg",dpi = 500, width = 12, height = 3)
+plot_and_test(df, "bpad_cnn", fill_color = "dxgroupFK", legend_labels = c("HC", "BD"), legend_title = "Group", x= 'DenseNet Brain-PAD', y='Density')
+ggsave("output/figures/density_plot_bpad_cnn.jpeg",dpi = 500,  width = 5, height = 5)
 dev.off()
+
+ # List of Brain-PAD columns
+bpad_cols <- c("bpad_cnn", "bpad_photon", "bpad_ridge", "bpad_BrainAgeR")
+
+# Generate all pairwise combinations
+combos <- combn(bpad_cols, 2, simplify = FALSE)
+
+# Run KS test for each pair and store results
+ks_results <- lapply(combos, function(pair) {
+  test <- ks.test(df[[pair[1]]], df[[pair[2]]])
+  list(
+    model_1 = pair[1],
+    model_2 = pair[2],
+    statistic = test$statistic,
+    p_value = test$p.value
+  )
+})
+
+# Convert to data frame
+ks_df <- do.call(rbind, lapply(ks_results, as.data.frame))
+# View results
+ks_df
  
 ```
 # Distribution and Normality Test of   Predicted Brain Ages 
@@ -137,13 +163,16 @@ plot_and_test(df, "ageprediction_BrainAgeR", fill_color = "dxgroupFK", legend_la
 dev.off() 
  # Example usage of the function for your variables
 plot_and_test(df, "cnn_BrainAge", fill_color = "dxgroupFK", legend_labels = c("HC", "BD"), legend_title = "Group", x= 'Predicted Age (MIDI)', y='Density')
-#ggsave("output/figures/density_plot_cnn_BrainAge.jpeg",dpi = 500, width = 12, height = 3)
+ggsave("output/figures/density_plot_cnn_BrainAge.jpeg",dpi = 500, width = 5, height = 5)
 dev.off()
 ```
 
 # correlation between chronological age and brain-pad
 ```{r}
 corr_age_brainpad_across_models <- df %>% dplyr::select(bpad_ridge, bpad_photon , bpad_BrainAgeR ,bpad_cnn, dxgroupFK, gender, agevisit) %>%  melt(id = c('agevisit', 'dxgroupFK', 'gender'))%>% group_by(variable, dxgroupFK) %>% summarise(pval = as.numeric(cor.test(agevisit, value)[3]),                                                                correlation = cor(agevisit, value))%>% mutate(pval = round(pval, 3), correlation = round(correlation, 3))
+
+df
+
 corr_age_brainpad_across_models
 # corr_age_brainpad_across_models %>%
 #   write.csv("output/data/corr_age_brainpad_across_models.csv", row.names = FALSE)
@@ -152,53 +181,59 @@ corr_age_brainpad_across_models
 # correlation between chronological age and predicted age
 ```{r}
 corr_age_predictedage_across_models <- df %>% dplyr::select(ridge_BrainAge, ageprediction_BrainAgeR , age_prediction ,cnn_BrainAge, dxgroupFK, gender, agevisit) %>%  melt(id = c('agevisit', 'dxgroupFK', 'gender'))%>% group_by(variable, dxgroupFK) %>% summarise(pval = as.numeric(cor.test(agevisit, value)[3]),  correlation = cor(agevisit, value))%>% mutate(pval = round(pval, 3), correlation = round(correlation, 3)) %>% filter()
-
+corr_age_predictedage_across_models
 #corr_age_predictedage_across_models %>% write.csv(., 'output/data/corr_age_predictedage_across_models.csv')
 ```
 # Correlation between brain-PAD and heatmap of matrix
 ```{r bpad_corr_heatmap.jpeg}
 # Select the columns you want to calculate pairwise correlations 
 # Calculate pairwise correlations
-correlation_matrix <- df %>% dplyr::select(bpad_ridge, bpad_photon , bpad_BrainAgeR ,bpad_cnn)  %>% cor(.)
-write.csv(round(correlation_matrix, 3), "output/data/bpad_corr_matrix.csv", row.names = TRUE)
+library(reshape2)
 
-# Print correlation matrix
- 
-correlation_matrix
+correlation_matrix <- df %>%
+  dplyr::select(bpad_photon, bpad_BrainAgeR, bpad_cnn, bpad_ridge) %>%  # reorder here
+  cor(.)
 
+write.csv(round(correlation_matrix, 3),
+          "output/data/bpad_corr_matrix.csv",
+          row.names = TRUE)
 
+# Melt the matrix
+corr_df <- melt(correlation_matrix)
 
-# Melt the matrix for ggplot
-bpad_corr_heatmap <- correlation_matrix  %>% melt(.) %>% ggplot(., aes(x = Var1, y =Var2, fill=value)) +
+# Ensure factor ordering matches PHOTON → BrainageR → DenseNet → Multimodal
+corr_df$Var1 <- factor(corr_df$Var1,
+                       levels = c("bpad_photon", "bpad_BrainAgeR", "bpad_cnn", "bpad_ridge"))
+corr_df$Var2 <- factor(corr_df$Var2,
+                       levels = c("bpad_photon", "bpad_BrainAgeR", "bpad_cnn", "bpad_ridge"))
+
+# Plot heatmap
+bpad_corr_heatmap <- ggplot(corr_df, aes(x = Var1, y = Var2, fill = value)) +
   geom_tile(color = "white") +
-  scale_fill_gradient2(low = "white",   high = "brown", midpoint = 0) +
+  scale_fill_gradient2(low = "white", high = "brown", midpoint = 0) +
   geom_text(aes(label = sprintf("%.2f", value)), color = "black", size = 4) +
   theme_minimal() +
-  labs(title = "Correlation Heatmap", x = "", y = "") +
+  labs(title = "Brain-PAD Correlation Heatmap across algorithms", x = "", y = "") +
+  scale_x_discrete(
+    labels = c(
+      "bpad_photon" = "PHOTON",
+      "bpad_BrainAgeR" = "BrainageR",
+      "bpad_cnn" = "DenseNet",
+      "bpad_ridge" = "Multimodal")) +
+  scale_y_discrete(
+    labels = c(
+      "bpad_photon" = "PHOTON",
+      "bpad_BrainAgeR" = "BrainageR",
+      "bpad_cnn" = "DenseNet",
+      "bpad_ridge" = "Multimodal")) +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
 
 bpad_corr_heatmap
-# ggsave("output/figures/bpad_corr_heatmap.jpeg",dpi = 500, width = 12, height = 3)
-# dev.off()
-```
 
-# Correlation between brain-PAD in BD across models and heatmap of corr matrix
-```{r}
-corr_bd_bpad <- df %>% dplyr::filter(dxgroupFK == 1) %>% dplyr::select(bpad_ridge, bpad_photon , bpad_BrainAgeR ,bpad_cnn)  %>% cor(.)  
-corr_bd_bpad
+ggsave("output/figures/bpad_corr_heatmap.jpeg",
+       width = 8, height = 6, dpi = 300)
+dev.off()
 
-# Melt the matrix for ggplot
-bd_bpad_corr_heatmap <- corr_bd_bpad %>% melt(.) %>% ggplot(., aes(x = Var1, y =Var2, fill=value)) +
-  geom_tile(color = "white") +
-  scale_fill_gradient2(low = "white", high = "red", midpoint = 0) +
-  geom_text(aes(label = sprintf("%.2f", value)), color = "black", size = 4) +
-  theme_minimal() +
-  labs(title = "Correlation Heatmap", x = "", y = "") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
-
-bd_bpad_corr_heatmap
-#ggsave("output/figures/bd_bpad_corr_heatmap.jpeg",dpi = 500, width = 12, height = 3)
-#dev.off() 
 
 ```
 
@@ -215,34 +250,60 @@ hc_bpad_corr_heatmap <- corr_hc_bpad  %>% melt(.) %>%
   ) %>% ggplot(., aes(x = Var1, y =Var2, fill=value)) +
   geom_tile(color = "white") +
   scale_fill_gradient2(low = "white",   high = "lightblue", midpoint = 0) +
-  geom_text(aes(label = sprintf("%.2f", value)), color = "black", size = 4) +
+  geom_text(aes(label = sprintf("%.2f", value)), color = "black", size = 4) +  
   theme_minimal() +
-  labs(title = "Correlation Heatmap", x = "", y = "") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
-
+  labs(title = "Brain-PAD correlation Heatmap across algorithms in HC", x = "", y = "") +
+  # Rename the x- and y-axis labels here
+  scale_x_discrete(
+    labels = c(
+      "bpad_ridge" = "Multimodal Ridge",
+      "bpad_photon" = "PHOTON",
+      "bpad_BrainAgeR" = "BrainageR",
+      "bpad_cnn" = "DenseNet MIDI"
+    )
+  ) +
+  scale_y_discrete(
+    labels = c(
+      "bpad_ridge" = "Multimodal Ridge",
+      "bpad_photon" = "PHOTON",
+      "bpad_BrainAgeR" = "BrainageR",
+      "bpad_cnn" = "DenseNet MIDI"
+    )
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)
+  )
 
 hc_bpad_corr_heatmap
-# ggsave("output/figures/hc_bpad_corr_heatmap.jpeg",dpi = 500, width = 12, height = 3)
-# dev.off() 
+ggsave("output/figures/hc_bpad_corr_heatmap.jpeg",
+  width = 8, height = 6, dpi = 300)
+dev.off() 
 
 
 ```
 
 # Standard deviation as a measure of variance in Brain-PAD in BD and HC groups
 ```{r}
-df %>% dplyr::select(bpad_ridge, bpad_photon , bpad_BrainAgeR ,bpad_cnn, dxgroupFK, gender, agevisit) %>% group_by(dxgroupFK) %>% 
+df %>% dplyr::select(bpad_ridge, bpad_photon , bpad_BrainAgeR ,bpad_cnn, dxgroupFK, gender, agevisit, ridge_BrainAge, age_prediction , cnn_BrainAge ,ageprediction_BrainAgeR) %>% group_by(dxgroupFK) %>% 
   summarise(sd_bpad_photon = round(sd(bpad_photon), 2), 
             sd_bpad_BrainAgeR = round(sd(bpad_BrainAgeR), 2), 
             sd_bpad_cnn = round(sd(bpad_cnn), 2), 
-            sd_bpad_ridge = round(sd(bpad_ridge), 2)) 
+            sd_bpad_ridge = round(sd(bpad_ridge), 2), 
+                # Raw predicted brain age metrics
+     sd_ridge_BrainAge = round(sd(ridge_BrainAge, na.rm = TRUE), 2),
+     sd_age_prediction = round(sd(age_prediction, na.rm = TRUE), 2),
+     sd_cnn_BrainAge = round(sd(cnn_BrainAge, na.rm = TRUE), 2),
+     sd_ageprediction_BrainAgeR = round(sd(ageprediction_BrainAgeR, na.rm = TRUE), 2),
+     sd_agevisit = round(sd(agevisit, na.rm = TRUE), 2)) # Visit age
+
 ```
 
 # Correlation between predicted ages
 ```{r}
 # --- Correlation Matrix Brain Age ---- 
 # Select the columns you want to calculate pairwise correlations for
-cor_data <-  df %>% dplyr::select(ridge_BrainAge, age_prediction , cnn_BrainAge ,ageprediction_BrainAgeR)  %>% cor(.)
-
+cor_data <-  df %>%  filter(dxgroupFK == 0)%>% dplyr::select(ridge_BrainAge, age_prediction , cnn_BrainAge ,ageprediction_BrainAgeR)  %>% cor(.)
+ 
 # Calculate pairwise correlations
 correlation_matrix <- cor(cor_data)
 
@@ -251,6 +312,20 @@ round(correlation_matrix, 3)
 
 write.csv(round(correlation_matrix, 3), "output/data/predicted_ages_corr_matrix.csv", row.names = TRUE)
 
+df# Select the columns you want to calculate pairwise correlations for
+cor_data <- df %>% dplyr::select( age_prediction , cnn_BrainAge ,ageprediction_BrainAgeR, agevisit)  %>% cor(.)
+round(cor_data,3)
+
+
+df# Select the columns you want to calculate pairwise correlations for
+cor_data <- df %>% dplyr::select( ridge_BrainAge, age_prediction , cnn_BrainAge ,ageprediction_BrainAgeR, agevisit) %>% filter(!is.na(ridge_BrainAge)) %>% cor(.)
+round(cor_data^2,3)
+
+# Calculate pairwise correlations
+correlation_matrix <- cor(cor_data)
+
+# Print correlation matrix
+round(correlation_matrix, 3)
 ```
 
 # Correlation between predicted ages and heatmap of matrix
@@ -259,7 +334,7 @@ write.csv(round(correlation_matrix, 3), "output/data/predicted_ages_corr_matrix.
 # Calculate pairwise correlations
 correlation_matrix <-  df %>% dplyr::select(ridge_BrainAge, age_prediction , cnn_BrainAge ,ageprediction_BrainAgeR)  %>% cor(.) 
 correlation_matrix
-custom_labels <- c("Ridge", "Photon",  "DenseNet MIDI", 'BrainAgeR')
+custom_labels <- c("Multimodel Ridge", "PHOTON",  "DenseNet MIDI", 'BrainageR')
 
 # Melt the matrix for ggplot
 predicted_ages_corr_heatmap <- correlation_matrix %>% melt(.) %>%
@@ -271,15 +346,15 @@ predicted_ages_corr_heatmap <- correlation_matrix %>% melt(.) %>%
   scale_fill_gradient2(low = "white",   high = "brown", midpoint = 0) +
   geom_text(aes(label = sprintf("%.2f", value)), color = "black", size = 4) +
   theme_minimal() +
-  labs(title = "Predicted Ages Correlation Heatmap", x = "", y = "") +
+  labs(title = "Predicted Age correlation heatmap across algorithms", x = "", y = "") +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
 
 predicted_ages_corr_heatmap
-# ggsave("output/figures/predicted_ages_corr_heatmap.jpeg",dpi = 500, width = 12, height = 3)
-# dev.off()
+ggsave("output/figures/predicted_ages_corr_heatmap.jpeg",
+  width = 8, height = 6, dpi = 300)
+dev.off()
 ```
 
-corr_hc_bpad <- df %>% dplyr::filter(dxgroupFK == 0) %>% dplyr::select(bpad_ridge, bpad_photon , bpad_BrainAgeR ,bpad_cnn)  %>% cor(.)    
 
 ```{r}
 corr_bd_predicted_ages <- df %>% dplyr::filter(dxgroupFK == 1) %>% dplyr::select(ridge_BrainAge, age_prediction , cnn_BrainAge ,ageprediction_BrainAgeR) %>% cor(.) 
@@ -293,12 +368,13 @@ bd_predicted_ages_corr_heatmap <- corr_bd_predicted_ages   %>% melt(.) %>%
   scale_fill_gradient2(low = "white",   high = "red", midpoint = 0) +
   geom_text(aes(label = sprintf("%.2f", value)), color = "black", size = 4) +
   theme_minimal() +
-  labs(title = "Predicted Ages (BD) Correlation Heatmap", x = "", y = "") +
+  labs(title = "Predicted Age correlation heatmap across algorithms in BD", x = "", y = "") +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
 
 
 bd_predicted_ages_corr_heatmap
-#ggsave("output/figures/bd_predicted_ages_corr_heatmap.jpeg",dpi = 500, width = 12, height = 3)
+ggsave("output/figures/bd_predicted_ages_corr_heatmap.jpeg",
+  width = 8, height = 6, dpi = 300)
 dev.off() 
 ```
 
@@ -316,12 +392,13 @@ hc_predicted_ages_corr_heatmap <- corr_hc_predicted_ages  %>% melt(.) %>%
   scale_fill_gradient2(low = "white",   high = "lightblue", midpoint = 0) +
   geom_text(aes(label = sprintf("%.2f", value)), color = "black", size = 4) +
   theme_minimal() +
-  labs(title = "Predicted Ages (HC) Correlation Heatmap", x = "", y = "") +
+  labs(title = "Predicted Age correlation heatmap across algorithms in HC", x = "", y = "") +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
 
 
 hc_predicted_ages_corr_heatmap
-#ggsave("output/figures/hc_predicted_ages_corr_heatmap.jpeg",dpi = 500, width = 12, height = 3)
+ggsave("output/figures/hc_predicted_ages_corr_heatmap.jpeg",
+  width = 8, height = 6, dpi = 300)
 dev.off() 
 ```
 
@@ -341,9 +418,7 @@ df %>% dplyr::select(ridge_BrainAge, age_prediction , cnn_BrainAge ,agepredictio
 ```{r }
 splot_titles <- c(ridge_BrainAge = 'Multimodal', age_prediction = 'PHOTON', ageprediction_BrainAgeR =  'BrainageR', cnn_BrainAge = 'DenseNet', `0` = 'HC', `1` = 'BD')
 
- 
-
-df %>% dplyr::select(ridge_BrainAge, age_prediction, ageprediction_BrainAgeR , cnn_BrainAge , dxgroupFK, gender, agevisit) %>%  melt(id = c('agevisit', 'dxgroupFK', 'gender')) %>%
+df %>% dplyr::select( age_prediction, ageprediction_BrainAgeR , cnn_BrainAge ,ridge_BrainAge, dxgroupFK, gender, agevisit) %>%  melt(id = c('agevisit', 'dxgroupFK', 'gender')) %>%
   ggplot(aes(x = agevisit, y = value , color = factor(gender))) +
   geom_point() +
   geom_smooth(method = "lm", se = FALSE) +  # Add a linear regression line
@@ -362,7 +437,7 @@ df %>% dplyr::select(ridge_BrainAge, age_prediction, ageprediction_BrainAgeR , c
     hjust = 1, vjust = 0,
     color = "black"
   ) 
-#ggsave(filename = "output/figures/predictedage_corr_age.jpeg"  ,dpi = 500, width = 12, height = 3)
+ggsave(filename = "output/figures/predictedage_corr_age.jpeg"  ,dpi = 500, width = 12, height = 3)
 dev.off()
 
 ```
@@ -370,7 +445,7 @@ dev.off()
 ```{r}
 splot_titles <- c(bpad_ridge = 'Multimodal', bpad_photon = 'PHOTON', bpad_BrainAgeR =  'BrainageR', bpad_cnn = 'DenseNet',  `0` = 'HC',`1` = 'BD')
 
-df %>% dplyr::select(bpad_ridge, bpad_photon , bpad_BrainAgeR ,bpad_cnn, dxgroupFK, gender, agevisit) %>%  melt(id = c('agevisit', 'dxgroupFK', 'gender')) %>%
+df %>% dplyr::select(bpad_photon , bpad_BrainAgeR ,bpad_cnn, bpad_ridge, dxgroupFK, gender, agevisit) %>%  melt(id = c('agevisit', 'dxgroupFK', 'gender')) %>%
   ggplot(aes(x = agevisit, y = value )) +
   geom_point() +
   geom_smooth(method = "lm", se = FALSE) +  # Add a linear regression line
@@ -389,7 +464,7 @@ df %>% dplyr::select(bpad_ridge, bpad_photon , bpad_BrainAgeR ,bpad_cnn, dxgroup
     hjust = 1, vjust = 0,
     color = "black"
   )   
-#ggsave("output/figures/uncorrected_bpad_corr_age.jpeg",dpi = 500, width = 12, height = 3)
+ggsave("output/figures/uncorrected_bpad_corr_age.jpeg",dpi = 500, width = 12, height = 3)
 dev.off()
 ```
 
@@ -415,9 +490,50 @@ df %>% dplyr::select(bpad_ridge, bpad_photon , bpad_BrainAgeR ,bpad_cnn, dxgroup
     hjust = 1, vjust = 0,
     color = "black"
   )   
-#ggsave("output/figures/bpadresid_corr_age_bysexdx.jpeg",dpi = 500, width = 12, height = 3)
+ggsave("output/figures/bpad_corr_age_bysexdx.jpeg",dpi = 500, width = 12, height = 3)
 dev.off()
- 
+
+```
+
+### Correlation between age and uncorrected brain-PAD for all 4 models;facet plots by group, separate lines by sex
+```{r}
+splot_titles <- c(ridge_BrainAge = 'Multimodal', age_prediction = 'PHOTON', ageprediction_BrainAgeR =  'BrainageR', cnn_BrainAge = 'DenseNet', `0` = 'HC',  `1` = 'BD')
+
+df %>% dplyr::select(ridge_BrainAge, age_prediction , ageprediction_BrainAgeR , cnn_BrainAge, dxgroupFK, agevisit) %>%  melt(id = c('agevisit', 'dxgroupFK' )) %>%
+  ggplot(aes(x = agevisit, y = value )) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +  # Add a linear regression line
+  labs(x = "Chronological Age", y = "Corrected Brain-PAD")  +
+    scale_color_manual(values=c('black'))+
+  theme_minimal() +
+  facet_grid(~ variable + dxgroupFK, labeller = as_labeller(splot_titles))    + 
+geom_text(data = . %>% group_by(variable, dxgroupFK) %>% summarise(correlation = cor(agevisit, value, use = "complete.obs", method = "pearson")) %>% mutate(correlation = round(correlation, 2)), aes(x = Inf, y = -Inf, label = paste("r =", correlation)), hjust = 1, vjust = -1,  color = "black") + 
+geom_text(data = . %>% group_by(variable, dxgroupFK) %>% summarise(pval = as.numeric(cor.test(agevisit, value)[3]))%>% mutate(pval = round(pval, 3)), aes(x = Inf, y = -Inf, label =  paste('p = ',round(pval, 2)),hjust = 1, vjust = 0, color = "black" )) +
+  theme(legend.position="none")
+ggsave("output/figures/brainage_corr_age_bydx.jpeg",dpi = 500, width = 12, height = 3)
+dev.off()
+```
+
+
+
+### Correlation between age and uncorrected brain-PAD for all 4 models;facet plots by group
+```{r}
+splot_titles <- c(bpad_ridge = 'Multimodal', bpad_photon = 'PHOTON', bpad_BrainAgeR =  'BrainageR', bpad_cnn = 'DenseNet',  `0` = 'HC',  `1` = 'BD')
+
+
+df %>% dplyr::select(bpad_ridge, bpad_photon , bpad_BrainAgeR ,bpad_cnn, dxgroupFK, gender, agevisit) %>%  melt(id = c('agevisit', 'dxgroupFK', 'gender')) %>%
+  ggplot(aes(x = agevisit, y = value )) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +  # Add a linear regression line
+  labs(x = "Chronological Age", y = "Corrected Brain-PAD")  +
+    scale_color_manual(values=c('black'))+
+  theme_minimal() +
+  facet_grid(~ variable + dxgroupFK, labeller = as_labeller(splot_titles))    + 
+geom_text(data = . %>% group_by(variable, dxgroupFK) %>% summarise(correlation = cor(agevisit, value, use = "complete.obs", method = "pearson")) %>% mutate(correlation = round(correlation, 2)), aes(x = Inf, y = -Inf, label = paste("r =", correlation)), hjust = 1, vjust = -1,  color = "black") + 
+geom_text(data = . %>% group_by(variable, dxgroupFK) %>% summarise(pval = as.numeric(cor.test(agevisit, value)[3]))%>% mutate(pval = round(pval, 3)), aes(x = Inf, y = -Inf, label =  paste('p = ',round(pval, 2)),hjust = 1, vjust = 0, color = "black" )) +
+  theme(legend.position="none")
+ggsave("output/figures/bpad_corr_age_bydx.jpeg",dpi = 500, width = 12, height = 3)
+dev.off()
 ```
 
 

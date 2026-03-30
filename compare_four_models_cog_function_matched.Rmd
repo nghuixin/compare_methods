@@ -1,0 +1,369 @@
+---
+title: "compare_four_models_cog_function_matched"
+author: "Hui Xin Ng"
+date: "2023-07-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+source("R/load_brainage_df.R")
+source("R/load_merged_df.R")
+source("R/helper_functions.R")
+source(".Rprofile")
+
+
+# renv::init()
+# renv::restore()
+ # renv::snapshot(type = "implicit")
+renv::status()
+renv::restore()
+renv::status()
+
+# ---- Load packages for current session ---- # (analysis scripts should ONLY do this part)
+ 
+#invisible(lapply(pkgs, library, character.only = TRUE))
+# ---- Sanity check: all packages available ---- 
+
+#stopifnot(all(vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)))
+```
+   
+
+```{r}
+# =========================
+# Data import / pre processing
+# =========================
+
+# Read source data
+path <- file.path(
+  "..", "data_original",
+  "Master_BAI_080720_with_051517completers_060117imagingmaster_genotypes_brainages_ENIGMA_FS_MERGEFK_30122020.sav"
+)
+
+original_df <- haven::read_sav(path)
+original_df
+original_df <- original_df %>%
+  dplyr::mutate(
+    BDI = ifelse(dxgroupFK == 0, 0, BDI))
+
+# Keep only variables used downstream
+original_df <- original_df %>%
+  dplyr::select(
+    BDI,
+    agevisit,
+    dxgroupFK,
+
+    # DKEFS Trails
+    trvsoerw,   # visual scanning omission errors
+    trvscerw,   # visual scanning commission errors
+    trnsctrw,   # number sequencing completion time (TMT A)
+    trlnctrw,   # letter-number sequencing completion time (TMT B)
+    trmsctrw,   # motor speed completion time
+
+    # DKEFS Color-Word Interference
+    cwicnrw,    # color naming raw
+    cwiwrrw,    # word reading raw
+    cwiirw,     # inhibition raw
+    cwiisrw,    # inhibition/switching raw
+    gender,
+
+    
+    # Clinical measures
+    scid_a1,    # current GAF
+    panspos,    # PANSS positive
+    pansneg,    # PANSS negative
+    pansgen,    # PANSS general
+    ymrstot,
+    hamtot17,
+    hamtot28,
+    HistoryPsychosis,
+
+    visit,
+    stdyptid
+  )
+
+# Remove NAs within each participant, then keep baseline only
+# Note: this preserves your original approach exactly
+original_df <- setDT(original_df)[, lapply(.SD, na.omit), by = stdyptid] 
+original_df <- original_df %>% filter(visit == 0) %>% mutate(visit = 'Baseline') 
+
+
+```
+
+
+# Perform matching to create matched_df
+```{r}
+# =========================
+# Simple age matching (no extra packages)
+# =========================
+
+# Split groups
+bd <- merged_df %>% dplyr::filter(dxgroupFK == 1)   # BD
+hc <- merged_df %>% dplyr::filter(dxgroupFK == 0)   # HC
+
+# Sort by age (helps stability)
+bd <- bd %>% arrange(agevisit)
+hc <- hc %>% arrange(agevisit)
+
+
+caliper <- 3  # age tolerance
+matched_pairs <- list()
+used_hc <- rep(FALSE, nrow(hc))
+
+for (i in seq_len(nrow(bd))) {
+  age_bd <- bd$agevisit[i]
+  gender_bd <- bd$gender[i]
+  
+  # Only match within same gender
+  valid <- hc$gender == gender_bd
+  
+  diffs <- abs(hc$agevisit - age_bd)
+  diffs[!valid | used_hc] <- Inf
+  
+  j <- which.min(diffs)
+  
+  if (is.finite(diffs[j]) && diffs[j] <= caliper) {
+    matched_pairs[[length(matched_pairs) + 1]] <- rbind(bd[i, ], hc[j, ])
+    used_hc[j] <- TRUE
+  }
+}
+
+matched_df <- dplyr::bind_rows(matched_pairs)
+
+# Combine matched dataset
+matched_df <- do.call(rbind, matched_pairs)
+
+prop.table(table(matched_df$dxgroupFK, matched_df$gender), margin = 1)
+
+for (df in list(matched_df, merged_df)) {
+ # print(plot_age_density(df))
+  print(run_gender_chisq(df))
+  print(run_age_wilcox(df))
+}
+
+```
+
+### Figures for matched and unmatched samples
+```{r}
+
+bind_rows(
+  merged_df %>% mutate(dataset = "Unmatched"),
+  matched_df %>% mutate(dataset = "Matched")
+) %>%
+  ggplot(aes(x = agevisit, fill = factor(dxgroupFK))) +
+  geom_density(alpha = 0.4) +
+  facet_wrap(~ dataset) +
+  labs(
+    title = "Age Distribution Before vs After Matching",
+    x = "Age",
+    y = "Density",
+    fill = "Group (0 = HC, 1 = BD)"
+  ) + theme_classic()
+
+bind_rows(
+  merged_df %>% mutate(dataset = "Unmatched"),
+  matched_df %>% mutate(dataset = "Matched")
+) %>%
+  ggplot(aes(x = factor(dxgroupFK), fill = factor(gender))) +
+  geom_bar(position = "fill") +
+  facet_wrap(~ dataset) +
+  labs(
+    title = "Gender Proportions Before vs After Matching",
+    x = "Group (0 = HC, 1 = BD)",
+    y = "Proportion",
+    fill = "Gender"
+  ) +
+  theme_classic()
+```
+
+
+### Data cleaning for cognitive variablesS
+```{r}
+
+# Cognitive test variables
+cog_vars <- c(
+  "trvsoerw", # DKEFS - Trails Visual Scanning Omission Errors Raw (Misses)
+  "trvscerw", # DKEFS - Trails Visual Scanning Commission Errors Raw (False Alarm)
+  "trnsctrw", # DKEFS - Trails Number Sequencing Completion Times Raw (TMT A)
+  "trlnctrw", # DKEFS - Trails Letter-Number Completion Times Raw (TMT B)
+  "trmsctrw", # DKEFS - Trails Motor Speed Completion Times Raw
+  "cwicnrw",  # DKEFS - Color Word Interference - Color Naming Raw
+  "cwiwrrw",  # DKEFS - Color Word Interference - Word Reading Raw
+  "cwiirw",   # DKEFS - Color Word Interference - Inhibition Raw
+  "cwiisrw",  # DKEFS - Color Word Interference - Inhibition/Switching Raw
+ 
+  "dxgroupFK",
+  "gender")
+
+
+cog_test_scores_merged <-merged_df %>% dplyr::select(cog_vars)
+cog_test_scores_matched <-matched_df %>% dplyr::select(cog_vars)
+
+# =========================================================
+# Remove outliers from cognitive scores
+# Using the helper function defined earlier
+# =========================================================
+
+outliers_removed_merged  <- remove_sd_outliers(cog_test_scores_merged,   n_sd = 2)
+outliers_removed_matched <- remove_sd_outliers(cog_test_scores_matched, n_sd = 2)
+
+
+# =========================================================
+# Plot cleaned score distributions for MERGED dataset
+# Exclude BD051 as in your earlier QC step
+# =========================================================
+
+
+outliers_removed_merged %>%
+  dplyr::filter(stdyptid != "BD051") %>%
+  reshape2::melt() %>%
+  ggplot(aes(x = value, fill = factor(dxgroupFK))) +
+  geom_histogram() +
+  facet_wrap(~ variable, scales = "free") +
+  theme_bw() +
+  labs(
+    title = "Distributions of Cognitive Scores After Outlier Removal (Merged)",
+    x = "Score",
+    y = "Count",
+    fill = "Group"
+  )
+
+
+# =========================================================
+# Plot cleaned score distributions for MATCHED dataset
+# =========================================================
+
+outliers_removed_matched %>%
+  dplyr::filter(stdyptid != "BD051") %>%
+  reshape2::melt() %>%
+  ggplot(aes(x = value, fill = factor(dxgroupFK))) +
+  geom_histogram() +
+  facet_wrap(~ variable, scales = "free") +
+  theme_bw() +
+  labs(
+    title = "Distributions of Cognitive Scores After Outlier Removal (Matched)",
+    x = "Score",
+    y = "Count",
+    fill = "Group"
+  )
+
+
+# =========================================================
+# Check normality of numeric variables after outlier removal
+# Returns Shapiro-Wilk p-values by variable
+# =========================================================
+
+normality_merged <- outliers_removed_merged %>%
+  dplyr::select(where(is.numeric)) %>%
+  test_normality()
+
+normality_matched <- outliers_removed_matched %>%
+  dplyr::select(where(is.numeric)) %>%
+  test_normality()
+
+normality_merged
+normality_matched
+
+
+# =========================================================
+# Run one-way ANOVA for each cognitive test in MERGED dataset
+# Group comparison: HC vs BD
+# =========================================================
+
+anova_results_merged <- outliers_removed_merged %>%
+  tidyr::pivot_longer(
+    cols = -c(stdyptid, gender, dxgroupFK),
+    names_to = "test",
+    values_to = "score"
+  ) %>%
+  dplyr::filter(!is.na(score)) %>%
+  dplyr::mutate(score = round(score, 2)) %>%
+  dplyr::group_by(test) %>%
+  do(broom::tidy(aov(score ~ factor(dxgroupFK), data = .))) %>%
+  dplyr::filter(term == "factor(dxgroupFK)") %>%
+  dplyr::select(test, statistic, p.value, df) %>%
+  dplyr::rename(
+    Test = test,
+    F_value = statistic,
+    p_value = p.value,
+    Df = df
+  ) %>%
+  dplyr::arrange(p_value)
+
+anova_results_merged
+
+
+# =========================================================
+# Run one-way ANOVA for each cognitive test in MATCHED dataset
+# =========================================================
+
+anova_results_matched <- outliers_removed_matched %>%
+  tidyr::pivot_longer(
+    cols = -c(stdyptid, gender, dxgroupFK),
+    names_to = "test",
+    values_to = "score"
+  ) %>%
+  dplyr::filter(!is.na(score)) %>%
+  dplyr::mutate(score = round(score, 2)) %>%
+  dplyr::group_by(test) %>%
+  do(broom::tidy(aov(score ~ factor(dxgroupFK), data = .))) %>%
+  dplyr::filter(term == "factor(dxgroupFK)") %>%
+  dplyr::select(test, statistic, p.value, df) %>%
+  dplyr::rename(
+    Test = test,
+    F_value = statistic,
+    p_value = p.value,
+    Df = df
+  ) %>%
+  dplyr::arrange(p_value)
+
+anova_results_matched
+
+
+# =========================================================
+# Boxplots of cleaned cognitive scores for MERGED dataset
+# Useful for compact visual group comparison
+# =========================================================
+
+outliers_removed_merged %>%
+  tidyr::pivot_longer(
+    cols = -c(stdyptid, dxgroupFK, gender),
+    names_to = "test",
+    values_to = "score"
+  ) %>%
+  ggplot(aes(x = factor(dxgroupFK), y = score, fill = factor(dxgroupFK))) +
+  geom_boxplot() +
+  facet_wrap(~ test, scales = "free") +
+  theme_bw() +
+  labs(
+    title = "Cognitive Scores by Group (Merged)",
+    x = "Group",
+    y = "Cognitive Score",
+    fill = "Group"
+  )
+
+
+# =========================================================
+# Boxplots of cleaned cognitive scores for MATCHED dataset
+# =========================================================
+
+outliers_removed_matched %>%
+  tidyr::pivot_longer(
+    cols = -c(stdyptid, dxgroupFK, gender),
+    names_to = "test",
+    values_to = "score"
+  ) %>%
+  ggplot(aes(x = factor(dxgroupFK), y = score, fill = factor(dxgroupFK))) +
+  geom_boxplot() +
+  facet_wrap(~ test, scales = "free") +
+  theme_bw() +
+  labs(
+    title = "Cognitive Scores by Group (Matched)",
+    x = "Group",
+    y = "Cognitive Score",
+    fill = "Group"
+  )
+
+
+```

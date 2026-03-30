@@ -46,15 +46,11 @@ df %>% group_by(dxgroupFK) %>% tally()
 df
 df <- df %>% dplyr::select("stdyptid", 'gender','dxgroupFK' ,"visit", 
                       'ridge_BrainAge','age_prediction','ageprediction_BrainAgeR',"cnn_BrainAge", "agevisit")
- 
 df  <- df %>% mutate(bpad_ridge = ridge_BrainAge - agevisit,
                      bpad_photon = age_prediction - agevisit,
                      bpad_BrainAgeR = ageprediction_BrainAgeR - agevisit,
                      bpad_cnn = cnn_BrainAge - agevisit,
                      age2 = agevisit*2)  
- 
-df
- 
 ```
 
 ```{r}
@@ -67,15 +63,12 @@ new_df<- new_df %>%
     dxgroupFK == 1 ~ 0,
     dxgroupFK == 2 ~ 1, 
     TRUE ~ dxgroupFK  # keep original value if not 1 or 2
-  ), 
-  
+  ),
   gender = case_when(
     gender == 1 ~ 0,
     gender == 2 ~ 1, 
     TRUE ~ gender  # keep original value if not 1 or 2
-  )) 
- new_df 
- 
+  ))  
 ```
 
 ```{r}
@@ -87,16 +80,12 @@ FSvolume_L
 # remove the suffix, and we have 33 regions total
 # filter out dxgroupFK, stdyptid and HC vol columns, we only want columns that exist in DKregions_check 
 colnames_L <- names(FSvolume_L)[3:35] %>% sort() %>% gsub("_L_V", "",.) # 33 regions
-
 # DKregions_check is a vector containing the names of the 33 regions of interest after removing "corpus callosum" and "bankssts", because banks does not exist for right side, and cc does not exist for both sides
 DKregions_check <- brain_regions(dk)[!brain_regions(dk) %in% c("corpus callosum", "bankssts")] %>% gsub(" ", "",.) # 33 regions, after removing 2, and remove the space between the column names
-
 sum(DKregions_check ==  colnames_L) # check if the column names match and are in the same order
-
 DKregions  <- brain_regions(dk)[!brain_regions(dk) %in% c("corpus callosum", "bankssts")]
 #original_df %>% na.omit(.) %>% summarise_if(is.numeric, mean)
 FSvolume_L %>% na.omit(.) %>% summarise_if(is.numeric, sd)
-DKregions
 
 ```
 
@@ -108,14 +97,12 @@ DKregions
 
 plotBrainMap <- function(df, cortical_pos, groups = NULL){ # dkgroup  is hardcoded
   if (!is.null(groups)) {
-    
     p <- df %>% group_by(dxgroupFK) %>%
       ggplot() +
       geom_brain(atlas = dk, show.legend = TRUE, # Add a brain image using the geom_brain() function, specifying the atlas as dk and the coordinates as cortical_pos. 
                  position = position_brain(cortical_pos),  
                  # Use the scale_fill_continuous_divergingx() function to set the color palette to "RdBu" and the midpoint to 0.
                  aes(fill = value)) +  scale_fill_continuous_divergingx(palette = 'RdBu', mid = 0 , limits = c(-0.8, 0.8))+theme_void()+facet_wrap(~dxgroupFK) 
- 
   } else { 
     p <- df %>%
       ggplot() +
@@ -126,7 +113,6 @@ plotBrainMap <- function(df, cortical_pos, groups = NULL){ # dkgroup  is hardcod
       theme_void()    
   }
   return(p)
-  
 }  
 
 geom_brain(atlas = aseg) + ggplot(aseg$data)
@@ -134,58 +120,64 @@ geom_brain(atlas = aseg) + ggplot(aseg$data)
 # Input: df (a data frame)
 # Output: a ggplot object with corr between the selected features and Brain-PADs
 
-v_sa_tSelect <- function(df, csv_filename_of_corr_boad_and_regions, hemi) {
+
+v_sa_tSelect <- function(df, csv_filename_of_corr_boad_and_regions, hemi, bpad_type = "ridge") {
   
-  # Select columns in alphabetical order, relocate bpad_PLS_BrainAge, dxgroupFK to the last columns,
+  bpad_col <- paste0("bpad_", bpad_type)
+  
+  # Select columns in alphabetical order, relocate bpad, dxgroupFK to the last columns,
   # drop the stdyptid column, and remove rows with missing values
-  FS_L_corrBPAD <- df %>% dplyr::select(order(colnames(.))) %>% relocate(stdyptid, bpad_ridge, dxgroupFK, .after = last_col()) %>%  dplyr::select(-stdyptid) %>% drop_na %>% 
-  #print(FS_L_corrBPAD)
-  # Group the data by dxgroupFK and calculate the correlation of each column with bpad_PLS_BrainAge
-  group_by(dxgroupFK) %>% summarise_all(~cor(., bpad_ridge)) %>% 
+  FS_L_corrBPAD <- df %>%
+    dplyr::select(order(colnames(.))) %>%
+    relocate(stdyptid, all_of(bpad_col), dxgroupFK, .after = last_col()) %>%
+    dplyr::select(-stdyptid) %>%
+    drop_na() %>%
+    
+    # Group the data by dxgroupFK and calculate the correlation of each column with the selected bpad
+    group_by(dxgroupFK) %>%
+    summarise_all(~cor(., .data[[bpad_col]])) %>%
+    
+    # Rename column names to include "_corr_bpad_{type}" except for bpad and dxgroupFK
+    rename_at(vars(-all_of(c(bpad_col, "dxgroupFK"))), ~paste0(., "_corr_bpad_", bpad_type)) %>%
+    
+    # Rename columns to include DKregions and bpad
+    set_names(c('dxgroupFK', DKregions , bpad_col)) %>%
+    melt() %>%
+    
+    # Convert to proper types and rename variable column to region
+    mutate(variable = as.character(variable), 
+           value = as.numeric(value)) %>%
+    rename(region = variable) %>%
+    filter(region != bpad_col)
   
-  # Rename column names to include "_corr_bpad_pls" except for bpad_PLS_BrainAge and dxgroupFK columns,
-  # set the column names to include DKregions and bpad_PLS_BrainAge, and melt the data frame
-  rename_at(vars(-bpad_ridge, -dxgroupFK), ~paste0( ., "_corr_bpad_pls")) %>% 
-  set_names(c( 'dxgroupFK', DKregions , 'bpad_ridge' ))%>% melt() %>% 
- 
-  # and filter out rows with region equal to "bpad_PLS_BrainAge"
-  mutate(variable = as.character(variable), 
-         value = as.numeric(value)) %>% 
-     # rename the variable column to region,
-    rename(region = variable) %>% filter(region  != "bpad_ridge")
-   if (tolower(hemi) == "l") {
+  # Hemisphere-specific cortical positions
+  if (tolower(hemi) == "l") {
     cortical_pos <- c("left lateral", "left medial")
   } else {
     cortical_pos <- c("right lateral", "right medial")
   }
-  # Call the plotBrainMap function to create a brain map with the data and return it
-  #return (FS_L_corrBPAD %>% filter(value < -0.5))
+  
+  # Output and return
   write.csv(FS_L_corrBPAD, csv_filename_of_corr_boad_and_regions)
-  p <-plotBrainMap(FS_L_corrBPAD, cortical_pos, "dxgroupFK")
+  p <- plotBrainMap(FS_L_corrBPAD, cortical_pos, "dxgroupFK")
   return(p)
-} 
+}
+
 ```
 
 ```{r}
 # Number of HC and BD do not match the dataset, we expect that there are no NAs
 # FSvolume_L %>%  mutate_all(~replace(., is.na(.), 0)) %>% group_by(dxgroupFK) %>% tally() 
 # FSvolume_L %>%  drop_na() %>% group_by(dxgroupFK) %>% tally() 
- 
 #original_df %>%  dplyr::select(stdyptid,dxgroupFK, ends_with("L_S"))# %>% # drop_na() %>% group_by(dxgroupFK) %>% tally() 
 #original_df_unique <- original_df %>%  dplyr::select( -ends_with("age"), -ends_with('BrainAge'))# dplyr::distinct(stdyptid, .keep_all = TRUE)  # Keep rows with unique studyptid
-
-
 #original_df_unique <-
-  
-aseg_brain_df <- new_df %>% dplyr::select( dxgroupFK, stdyptid, starts_with("age"), starts_with('bpad') , ends_with('BrainAge'), starts_with(c('Left_', 'Right_', 'Third_', 'Fourth_Ventricle', 'Brain_Stem'))) 
-
- 
- 
- 
- 
 ```
 
+# ASEG BRAIN PAD DF
 ```{r}
+aseg_brain_df <- new_df %>% dplyr::select( dxgroupFK, stdyptid, starts_with("age"), starts_with('bpad') , ends_with('BrainAge'), starts_with(c('Left_', 'Right_', 'Third_', 'Fourth_Ventricle', 'Brain_Stem'))) 
+
 aseg_df <- aseg_brain_df %>% mutate(dxgroupFK = as.factor(dxgroupFK))  %>% 
  dplyr::select(dxgroupFK, bpad_ridge , 
    Left_Amygdala, Right_Amygdala,
@@ -202,7 +194,10 @@ aseg_df <- aseg_brain_df %>% mutate(dxgroupFK = as.factor(dxgroupFK))  %>%
    Left_Cerebellum_Cortex, Right_Cerebellum_Cortex, Third_Ventricle, Fourth_Ventricle, Brain_Stem #%>%    dplyr::select( dxgroupFK, bpad_PLS_BrainAge , starts_with("Left_")) 
  )  %>% relocate(   bpad_ridge, .after = last_col()) %>%   drop_na %>% rename(`3rd ventricle` = Third_Ventricle, `4th ventricle` = Fourth_Ventricle, `brain stem` = Brain_Stem) 
  
+```
 
+# ASEG BRAIN PAD PHOTON AI DF
+```{r}
 
 # photon
 aseg_photon_df <- aseg_brain_df %>% mutate(dxgroupFK = as.factor(dxgroupFK))  %>% 
@@ -221,7 +216,7 @@ aseg_photon_df <- aseg_brain_df %>% mutate(dxgroupFK = as.factor(dxgroupFK))  %>
    Left_Cerebellum_Cortex, Right_Cerebellum_Cortex, Third_Ventricle, Fourth_Ventricle, Brain_Stem #%>%    dplyr::select( dxgroupFK, bpad_PLS_BrainAge , starts_with("Left_")) 
  )  %>% relocate(   bpad_photon, .after = last_col()) %>%   drop_na %>% rename(`3rd ventricle` = Third_Ventricle, `4th ventricle` = Fourth_Ventricle, `brain stem` = Brain_Stem) 
  
- 
+ aseg_photon_df
  
 #  
 #  melt_aseg_df <- aseg_df %>%
@@ -276,15 +271,13 @@ aseg_photon_df <- aseg_brain_df %>% mutate(dxgroupFK = as.factor(dxgroupFK))  %>
 merged_df <- merge(melt_aseg_df, aseg$data)
 merged_df %>% write.csv(., 'output/data/aseg_subcortical_structures_volume_corr_bpad_ridge.csv')
 merged_df %>%group_by(dxgroupFK) %>% ggplot(aes(fill = value)) + geom_brain(atlas = aseg) +  scale_fill_continuous_divergingx(palette = 'RdBu', mid = 0 , limits = c(-0.75, 0.75))+theme_void()+facet_wrap(~dxgroupFK) 
-ggsave('output/figures/aseg_subcortical_structures_volume_corr_bpad_photon.jpeg')
+#ggsave('output/figures/aseg_subcortical_structures_volume_corr_bpad_photon.jpeg')
 
 ```
 
 
 # Subcortical region correlation with brain-pad PHOTON AI
-
 ```{r}
-
 
 melt_aseg_photon_df <- aseg_photon_df %>%
   # Group the data by dxgroupFK and calculate the correlation of each column with bpad_PLS_BrainAge  #%>%  rename_at(vars(  -dxgroupFK), ~paste0( ., "_corr_bpad_pls")) 
@@ -298,49 +291,84 @@ merged_photon_df %>% write.csv(., 'output/data/aseg_subcortical_structures_volum
 
 
 merged_photon_df %>%group_by(dxgroupFK) %>% ggplot(aes(fill = value)) + geom_brain(atlas = aseg) +  scale_fill_continuous_divergingx(palette = 'RdBu', mid = 0 , limits = c(-0.75, 0.75))+theme_void()+facet_wrap(~dxgroupFK) 
-ggsave('output/figures/aseg_subcortical_structures_volume_corr_bpad_photon.jpeg')
-  
+##ggsave('output/figures/aseg_subcortical_structures_volume_corr_bpad_photon.jpeg')
 
  
 ```
 
-
-
-
 ### Create brain map of correlation between volume and Brain-PAD for left and right hemi
 ```{r}
-original_df_unique <- original_df %>%  dplyr::select(  ends_with("L_V"), -ends_with("age"),stdyptid, dxgroupFK, -Banks_L_V, -HC_combined_L_V) 
 only_bpad_ridge_df <- df %>% dplyr::select(bpad_ridge, stdyptid)
-FSvolume_L <- merge(original_df_unique, only_bpad_ridge_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
+FSvolume_L <- merge(original_df_unique_volume_left, only_bpad_ridge_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
 
-original_df_unique <- original_df %>%  dplyr::select(  ends_with("R_V"), -ends_with("age"),stdyptid, dxgroupFK, -HC_combined_R_V) # there is NO Banks_R_V
 only_bpad_ridge_df <- df %>% dplyr::select(bpad_ridge, stdyptid)
-FSvolume_R <- merge(original_df_unique, only_bpad_ridge_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
+FSvolume_R <- merge(original_df_unique_volume_right, only_bpad_ridge_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
 
 #FSvolume_L %>% write.csv("output/data/freesurfer_gray_volume_left.csv")
 #FSvolume_R %>% write.csv("output/data/freesurfer_gray_volume_right.csv")
 
-v_sa_tSelect(FSvolume_L,"output/data/fre esurfer_volume_corr_bpad_left.csv", "l")
+
+
+
+v_sa_tSelect(FSvolume_L,"output/data/freesurfer_volume_corr_bpad_left.csv", "l", 'ridge')
 #ggsave("output/figures/FSvolume_L_corr_brainpad_Ridge.png")
 
 v_sa_tSelect(FSvolume_R,"output/data/freesurfer_volume_corr_bpad_right.csv", "r")
 #ggsave("output/figures/FSvolume_R_corr_brainpad_Ridge.png")
 ```
 
+
+### Create brain map of correlation between volume and Brain-PAD PHOTON AI for left and right hemi
+```{r}
+original_df_unique_volume_left <- original_df %>%  dplyr::select(  ends_with("L_V"), -ends_with("age"),stdyptid, dxgroupFK, -Banks_L_V, -HC_combined_L_V)
+original_df_unique_volume_right <- original_df %>%  dplyr::select(  ends_with("R_V"), -ends_with("age"),stdyptid, dxgroupFK, -HC_combined_R_V) # there is NO Banks_R_V
+only_bpad_photon_df <- df %>% dplyr::select(bpad_photon, stdyptid)
+
+
+FSvolume_L_photon <- merge(original_df_unique_volume_left, only_bpad_photon_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
+FSvolume_R_photon <- merge(original_df_unique_volume_right, only_bpad_photon_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
+
+FSvolume_L_photon %>% write.csv("output/data/freesurfer_gray_volume_left_photon.csv")
+FSvolume_R_photon %>% write.csv("output/data/freesurfer_gray_volume_right_photon.csv")
+
+#v_sa_tSelect(FSvolume_L_photon,"output/data/fre esurfer_volume_corr_bpad_photon_left.csv", "l", bpad_type = "photon")
+#ggsave("output/figures/FSvolume_L_corr_brainpad_photon.png")
+
+#v_sa_tSelect(FSvolume_R_photon,"output/data/freesurfer_volume_corr_bpad_photon_right.csv", "r",  bpad_type = "photon")
+#ggsave("output/figures/FSvolume_R_corr_brainpad_photon.png")
+```
+
 ### Create brain map of correlation between Surface Area and Brain-PAD for left and right hemi
 ```{r}
 only_bpad_ridge_df <- df %>% dplyr::select(bpad_ridge, stdyptid)
 
-original_df_unique <- original_df %>%  dplyr::select(ends_with("L_S"), -ends_with("age"), stdyptid, dxgroupFK,-Banks_STS_L_S)
-FSsurfarea_L <-merge(original_df_unique, only_bpad_ridge_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
 
-original_df_unique <- original_df %>%  dplyr::select(ends_with("R_S"), -ends_with("age"), stdyptid, dxgroupFK)
-FSsurfarea_R <-merge(original_df_unique, only_bpad_ridge_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
+original_df <- original_df  %>%
+  mutate(dxgroupFK = case_when(
+    dxgroupFK == 1 ~ 0,
+    dxgroupFK == 2 ~ 1, 
+    TRUE ~ dxgroupFK  # keep original value if not 1 or 2
+  ),
+  gender = case_when(
+    gender == 1 ~ 0,
+    gender == 2 ~ 1, 
+    TRUE ~ gender  # keep original value if not 1 or 2
+  ))  
+original_df_unique_surface_area_left <- original_df %>%  dplyr::select(ends_with("L_S"), -ends_with("age"), stdyptid, dxgroupFK,-Banks_STS_L_S)
+original_df_unique_surface_area_right <- original_df %>%  dplyr::select(ends_with("R_S"), -ends_with("age"), stdyptid, dxgroupFK)
 
-v_sa_tSelect(FSsurfarea_L,"output/data/freesurfer_surface_area_corr_bpad_left.csv", "l")
+original_df_unique_surface_area_right
+
+FSsurfarea_L <-merge(original_df_unique_surface_area_left, only_bpad_ridge_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
+FSsurfarea_R <-merge(original_df_unique_surface_area_right, only_bpad_ridge_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
+
+
+FSsurfarea_L
+
+v_sa_tSelect(FSsurfarea_L,"output/data/freesurfer_surface_area_corr_bpad_left.csv", "l",'ridge')
 ggsave("output/figures/FSsurface_area_L_corr_brainpad_Ridge.png")
 
-v_sa_tSelect(FSsurfarea_R,"output/data/freesurfer_surface_area_corr_bpad_right.csv", "r")
+v_sa_tSelect(FSsurfarea_R,"output/data/freesurfer_surface_area_corr_bpad_right.csv", "r",'ridge')
 ggsave("output/figures/FSsurface_area_R_corr_brainpad_Ridge.png")
 
 
@@ -351,39 +379,56 @@ FSsurfarea_R %>% write.csv("output/data/freesurfer_gray_surface_area_right.csv")
 
 
 
-v_sa_tSelect(FSvolume_L,"output/data/freesurfer_volume_corr_bpad_left.csv", "l")
-ggsave("output/figures/FSvolume_L_corr_brainpad_Ridge.png")
+FSsurfarea_photon_L <-merge(original_df_unique_surface_area_left, only_bpad_photon_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
+FSsurfarea_photon_R <-merge(original_df_unique_surface_area_right, only_bpad_photon_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
+ 
+v_sa_tSelect(FSsurfarea_photon_L,"output/data/freesurfer_surface_area_corr_bpad_photon_left.csv", "l",'photon')
+v_sa_tSelect(FSsurfarea_photon_R,"output/data/freesurfer_surface_area_corr_bpad_photon_right.csv", "l",'photon')
 
-v_sa_tSelect(FSvolume_R,"output/data/freesurfer_volume_corr_bpad_right.csv", "r")
-ggsave("output/figures/FSvolume_R_corr_brainpad_Ridge.png")
+ 
+
 ```
 
 ### Create brain map of correlation between cortical thickness and Brain-PAD for left and right hemi
 ```{r}
 
-
-
-original_df_unique <- original_df %>%  dplyr::select(ends_with("L_S"), -ends_with("age"), stdyptid, dxgroupFK,-Banks_STS_L_S)
-FSsurfarea_L <-merge(original_df_unique, only_bpad_ridge_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
-
-
 FSthickness_L <- original_df %>% dplyr::select(stdyptid, dxgroupFK , caudalanteriorcingulate_L_T, ends_with("_L")) %>% dplyr::select(-c('totalavgCT_L', 'totalSA_L', 'totalGMvolume_L', 'Banks_L' ))
-FSthickness_L <-merge(FSthickness_L, only_bpad_ridge_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
+FSthickness_ridge_L <-merge(FSthickness_L, only_bpad_ridge_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
 
 FSthickness_R <- original_df %>% dplyr::select(stdyptid, dxgroupFK ,  ends_with("_R")) %>% dplyr::select(-c('totalavgCT_R', 'totalSA_R', 'totalGMvolume_R', 'Banks_R','basis_r'))
-FSthickness_R <-merge(FSthickness_R, only_bpad_ridge_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
+FSthickness_ridge_R <-merge(FSthickness_R, only_bpad_ridge_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
 
-
-v_sa_tSelect(FSthickness_L, "output/data/freesurfer_thickness_corr_bpad_left.csv", "l")
+v_sa_tSelect(FSthickness_ridge_L, "output/data/freesurfer_thickness_corr_bpad_ridge_left.csv", "l", 'ridge')
 ggsave("output/figures/FSsthickness_L_corr_brainpad_Ridge.png")
 
 
-v_sa_tSelect(FSthickness_R , "output/data/freesurfer_thickness_corr_bpad_right.csv", "r") 
+v_sa_tSelect(FSthickness_ridge_R , "output/data/freesurfer_thickness_corr_bpad_ridge_right.csv", "r", 'ridge')
 ggsave("output/figures/FSsthickness_R_corr_brainpad_Ridge.png")
 
 
 FSthickness_L %>% write.csv("output/data/freesurfer_gray_thickness_left.csv")
 FSthickness_R %>% write.csv("output/data/freesurfer_gray_thickness_right.csv")
+
+
+
+
+
+FSthickness_L <- original_df %>% dplyr::select(stdyptid, dxgroupFK , caudalanteriorcingulate_L_T, ends_with("_L")) %>% dplyr::select(-c('totalavgCT_L', 'totalSA_L', 'totalGMvolume_L', 'Banks_L' ))
+FSthickness_photon_L <-merge(FSthickness_L, only_bpad_photon_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
+
+FSthickness_R <- original_df %>% dplyr::select(stdyptid, dxgroupFK ,  ends_with("_R")) %>% dplyr::select(-c('totalavgCT_R', 'totalSA_R', 'totalGMvolume_R', 'Banks_R','basis_r'))
+FSthickness_photon_R <-merge(FSthickness_R, only_bpad_photon_df, by = c('stdyptid')) %>% filter(rowSums(is.na(.)) <= 7) %>% mutate(dxgroupFK = as.factor(dxgroupFK)) 
+
+
+v_sa_tSelect(FSthickness_photon_L, "output/data/freesurfer_thickness_corr_bpad_photon_left.csv", "l", 'photon')
+ggsave("output/figures/FSsthickness_L_corr_brainpad_photon.png")
+
+
+v_sa_tSelect(FSthickness_photon_R , "output/data/freesurfer_thickness_corr_bpad_photon_right.csv", "r", 'photon')
+ggsave("output/figures/FSsthickness_R_corr_brainpad_photon.png")
+FSthickness_photon_L
+
+
 ```
 
 
