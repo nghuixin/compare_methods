@@ -1,4 +1,5 @@
-# R files
+!renv.lock
+!renv/activate.R# R files
 .Rhistory
 .RData
 .RDataTmp
