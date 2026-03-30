@@ -26,5 +26,4 @@ This project was developed with **R 4.3.2**.
 Please make sure you are running:
 
 ```r
-R.version.string# compare_methods
- 
+R.version.string
