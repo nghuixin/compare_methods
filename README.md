@@ -1,6 +1,5 @@
 # compare_methods
 
-This project compares analysis methods in R using a project-specific `renv` environment.
 
 ## Requirements
 
