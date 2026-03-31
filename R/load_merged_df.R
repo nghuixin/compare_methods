@@ -1,2 +1,2 @@
-merged_df <- read.csv("../data_processed/df_all_brainage_2025.csv")
+merged_df <- read.csv("../data_processed/merge_df_brain_age_clinical_var.csv")
 

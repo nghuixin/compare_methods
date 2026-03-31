@@ -21,6 +21,32 @@ test_normality <- function(data) {
         }
       )
     )
+}# Returns one row with one p-value per column
+test_normality <- function(data) {
+  data %>%
+    dplyr::summarise(
+      dplyr::across(
+        dplyr::everything(),
+        ~ {
+          x <- stats::na.omit(.x)
+          
+          # Shapiro test requires:
+          # - numeric input
+          # - between 3 and 5000 observations
+          # - at least 2 unique values
+          if (
+            !is.numeric(x) ||
+            length(x) < 3 ||
+            length(x) > 5000 ||
+            length(unique(x)) < 2
+          ) {
+            NA_real_
+          } else {
+            stats::shapiro.test(x)$p.value
+          }
+        }
+      )
+    )
 }
 
 # Extract partial eta-squared from a model and round to 3 decimals

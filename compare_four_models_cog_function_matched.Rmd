@@ -8,28 +8,20 @@ output: html_document
 ```{r setup, include=FALSE}
 
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+source("R/load_packages.R")
+source("R/helper_functions.R")
+
 source("R/load_brainage_df.R")
 source("R/load_merged_df.R")
-source("R/helper_functions.R")
-source(".Rprofile")
 
-
-# renv::init()
+renv::activate()
 # renv::restore()
  # renv::snapshot(type = "implicit")
-renv::status()
-renv::restore()
-renv::status()
-
-# ---- Load packages for current session ---- # (analysis scripts should ONLY do this part)
+# renv::restore()
+# renv::status()
  
-#invisible(lapply(pkgs, library, character.only = TRUE))
-# ---- Sanity check: all packages available ---- 
-
-#stopifnot(all(vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)))
 ```
-   
-
+  
 ```{r}
 # =========================
 # Data import / pre processing
@@ -42,7 +34,6 @@ path <- file.path(
 )
 
 original_df <- haven::read_sav(path)
-original_df
 original_df <- original_df %>%
   dplyr::mutate(
     BDI = ifelse(dxgroupFK == 0, 0, BDI))
@@ -105,7 +96,6 @@ hc <- merged_df %>% dplyr::filter(dxgroupFK == 0)   # HC
 # Sort by age (helps stability)
 bd <- bd %>% arrange(agevisit)
 hc <- hc %>% arrange(agevisit)
-
 
 caliper <- 3  # age tolerance
 matched_pairs <- list()
@@ -183,8 +173,8 @@ bind_rows(
 
 # Cognitive test variables
 cog_vars <- c(
-  "trvsoerw", # DKEFS - Trails Visual Scanning Omission Errors Raw (Misses)
-  "trvscerw", # DKEFS - Trails Visual Scanning Commission Errors Raw (False Alarm)
+ # "trvsoerw", # DKEFS - Trails Visual Scanning Omission Errors Raw (Misses)
+ # "trvscerw", # DKEFS - Trails Visual Scanning Commission Errors Raw (False Alarm)
   "trnsctrw", # DKEFS - Trails Number Sequencing Completion Times Raw (TMT A)
   "trlnctrw", # DKEFS - Trails Letter-Number Completion Times Raw (TMT B)
   "trmsctrw", # DKEFS - Trails Motor Speed Completion Times Raw
@@ -192,14 +182,13 @@ cog_vars <- c(
   "cwiwrrw",  # DKEFS - Color Word Interference - Word Reading Raw
   "cwiirw",   # DKEFS - Color Word Interference - Inhibition Raw
   "cwiisrw",  # DKEFS - Color Word Interference - Inhibition/Switching Raw
- 
+"agevisit",
   "dxgroupFK",
   "gender")
 
-
 cog_test_scores_merged <-merged_df %>% dplyr::select(cog_vars)
 cog_test_scores_matched <-matched_df %>% dplyr::select(cog_vars)
-
+ 
 # =========================================================
 # Remove outliers from cognitive scores
 # Using the helper function defined earlier
@@ -207,53 +196,13 @@ cog_test_scores_matched <-matched_df %>% dplyr::select(cog_vars)
 
 outliers_removed_merged  <- remove_sd_outliers(cog_test_scores_merged,   n_sd = 2)
 outliers_removed_matched <- remove_sd_outliers(cog_test_scores_matched, n_sd = 2)
-
-
-# =========================================================
-# Plot cleaned score distributions for MERGED dataset
-# Exclude BD051 as in your earlier QC step
-# =========================================================
-
-
-outliers_removed_merged %>%
-  dplyr::filter(stdyptid != "BD051") %>%
-  reshape2::melt() %>%
-  ggplot(aes(x = value, fill = factor(dxgroupFK))) +
-  geom_histogram() +
-  facet_wrap(~ variable, scales = "free") +
-  theme_bw() +
-  labs(
-    title = "Distributions of Cognitive Scores After Outlier Removal (Merged)",
-    x = "Score",
-    y = "Count",
-    fill = "Group"
-  )
-
-
-# =========================================================
-# Plot cleaned score distributions for MATCHED dataset
-# =========================================================
-
-outliers_removed_matched %>%
-  dplyr::filter(stdyptid != "BD051") %>%
-  reshape2::melt() %>%
-  ggplot(aes(x = value, fill = factor(dxgroupFK))) +
-  geom_histogram() +
-  facet_wrap(~ variable, scales = "free") +
-  theme_bw() +
-  labs(
-    title = "Distributions of Cognitive Scores After Outlier Removal (Matched)",
-    x = "Score",
-    y = "Count",
-    fill = "Group"
-  )
-
-
+```
+```{r}
 # =========================================================
 # Check normality of numeric variables after outlier removal
 # Returns Shapiro-Wilk p-values by variable
 # =========================================================
-
+ 
 normality_merged <- outliers_removed_merged %>%
   dplyr::select(where(is.numeric)) %>%
   test_normality()
@@ -262,65 +211,265 @@ normality_matched <- outliers_removed_matched %>%
   dplyr::select(where(is.numeric)) %>%
   test_normality()
 
-normality_merged
-normality_matched
-
-
-# =========================================================
-# Run one-way ANOVA for each cognitive test in MERGED dataset
-# Group comparison: HC vs BD
-# =========================================================
-
-anova_results_merged <- outliers_removed_merged %>%
+normality_merged > 0.05
+normality_matched > 0.05
+```
+# linear regression sensitivity analyes for matched_df 
+```{r} 
+cog_test_scores_matched%>%
   tidyr::pivot_longer(
-    cols = -c(stdyptid, gender, dxgroupFK),
+    cols = -c(gender, dxgroupFK, agevisit),
     names_to = "test",
     values_to = "score"
   ) %>%
   dplyr::filter(!is.na(score)) %>%
-  dplyr::mutate(score = round(score, 2)) %>%
   dplyr::group_by(test) %>%
-  do(broom::tidy(aov(score ~ factor(dxgroupFK), data = .))) %>%
-  dplyr::filter(term == "factor(dxgroupFK)") %>%
-  dplyr::select(test, statistic, p.value, df) %>%
+  tidyr::nest() %>%
+  dplyr::mutate(
+    model = purrr::map(data, ~ lm(score ~ factor(dxgroupFK)  + agevisit , data = .x)),
+    tidy  = purrr::map(model, broom::tidy)
+  ) %>%
+  tidyr::unnest(tidy) %>%
+  dplyr::filter(term == "factor(dxgroupFK)1") %>%
+  dplyr::select(test, estimate, statistic, p.value) %>%
   dplyr::rename(
     Test = test,
-    F_value = statistic,
-    p_value = p.value,
-    Df = df
+    Beta = estimate,
+    t_value = statistic,
+    p_value = p.value
   ) %>%
   dplyr::arrange(p_value)
 
-anova_results_merged
 
-
-# =========================================================
-# Run one-way ANOVA for each cognitive test in MATCHED dataset
-# =========================================================
-
-anova_results_matched <- outliers_removed_matched %>%
+cog_test_scores_matched%>%
   tidyr::pivot_longer(
-    cols = -c(stdyptid, gender, dxgroupFK),
+    cols = -c(gender, dxgroupFK, agevisit),
     names_to = "test",
     values_to = "score"
   ) %>%
   dplyr::filter(!is.na(score)) %>%
-  dplyr::mutate(score = round(score, 2)) %>%
   dplyr::group_by(test) %>%
-  do(broom::tidy(aov(score ~ factor(dxgroupFK), data = .))) %>%
-  dplyr::filter(term == "factor(dxgroupFK)") %>%
-  dplyr::select(test, statistic, p.value, df) %>%
+  tidyr::nest() %>%
+  dplyr::mutate(
+    model = purrr::map(data, ~ lm(score ~ factor(dxgroupFK)  , data = .x)),
+    tidy  = purrr::map(model, broom::tidy)
+  ) %>%
+  tidyr::unnest(tidy) %>%
+  dplyr::filter(term == "factor(dxgroupFK)1") %>%
+  dplyr::select(test, estimate, statistic, p.value) %>%
   dplyr::rename(
     Test = test,
-    F_value = statistic,
-    p_value = p.value,
-    Df = df
+    Beta = estimate,
+    t_value = statistic,
+    p_value = p.value
   ) %>%
   dplyr::arrange(p_value)
 
-anova_results_matched
+lm_results_matched <- outliers_removed_matched %>%
+  tidyr::pivot_longer(
+    cols = -c(gender, dxgroupFK, agevisit),
+    names_to = "test",
+    values_to = "score"
+  ) %>%
+  dplyr::filter(!is.na(score)) %>%
+  dplyr::group_by(test) %>%
+  tidyr::nest() %>%
+  dplyr::mutate(
+    model = purrr::map(data, ~ lm(score ~ factor(dxgroupFK)  + agevisit , data = .x)),
+    tidy  = purrr::map(model, broom::tidy)
+  ) %>%
+  tidyr::unnest(tidy) %>%
+  dplyr::filter(term == "factor(dxgroupFK)1") %>%
+  dplyr::select(test, estimate, statistic, p.value) %>%
+  dplyr::rename(
+    Test = test,
+    Beta = estimate,
+    t_value = statistic,
+    p_value = p.value
+  ) %>%
+  dplyr::arrange(p_value)
+lm_results_matched 
+
+lm_results_matched <- outliers_removed_matched %>%
+  tidyr::pivot_longer(
+    cols = -c(gender, dxgroupFK, agevisit),
+    names_to = "test",
+    values_to = "score"
+  ) %>%
+  dplyr::filter(!is.na(score)) %>%
+  dplyr::group_by(test) %>%
+  tidyr::nest() %>%
+  dplyr::mutate(
+    model = purrr::map(data, ~ lm(score ~ factor(dxgroupFK)    , data = .x)),
+    tidy  = purrr::map(model, broom::tidy)
+  ) %>%
+  tidyr::unnest(tidy) %>%
+  dplyr::filter(term == "factor(dxgroupFK)1") %>%
+  dplyr::select(test, estimate, statistic, p.value) %>%
+  dplyr::rename(
+    Test = test,
+    Beta = estimate,
+    t_value = statistic,
+    p_value = p.value
+  ) %>%
+  dplyr::arrange(p_value)
+print(lm_results_matched)
+```
+
+```{r}
+# before remove outliers
+cog_test_scores_merged%>%
+  tidyr::pivot_longer(
+    cols = -c(gender, dxgroupFK, agevisit),
+    names_to = "test",
+    values_to = "score"
+  ) %>%
+  dplyr::filter(!is.na(score)) %>%
+  dplyr::group_by(test) %>%
+  tidyr::nest() %>%
+  dplyr::mutate(
+    model = purrr::map(data, ~ lm(score ~ factor(dxgroupFK)  + agevisit , data = .x)),
+    tidy  = purrr::map(model, broom::tidy)
+  ) %>%
+  tidyr::unnest(tidy) %>%
+  dplyr::filter(term == "factor(dxgroupFK)1") %>%
+  dplyr::select(test, estimate, statistic, p.value) %>%
+  dplyr::rename(
+    Test = test,
+    Beta = estimate,
+    t_value = statistic,
+    p_value = p.value
+  ) %>%
+  dplyr::arrange(p_value)
+
+# outliers removed
+lm_results_merged <- outliers_removed_merged %>%
+  tidyr::pivot_longer(
+    cols = -c(gender, dxgroupFK, agevisit),
+    names_to = "test",
+    values_to = "score"
+  ) %>%
+  dplyr::filter(!is.na(score)) %>%
+  dplyr::group_by(test) %>%
+  tidyr::nest() %>%
+  dplyr::mutate(
+    model = purrr::map(data, ~ lm(score ~ factor(dxgroupFK)  + agevisit , data = .x)),
+    tidy  = purrr::map(model, broom::tidy)
+  ) %>%
+  tidyr::unnest(tidy) %>%
+  dplyr::filter(term == "factor(dxgroupFK)1") %>%
+  dplyr::select(test, estimate, statistic, p.value) %>%
+  dplyr::rename(
+    Test = test,
+    Beta = estimate,
+    t_value = statistic,
+    p_value = p.value
+  ) %>%
+  dplyr::arrange(p_value)
+lm_results_merged 
+
+lm_results_merged <- outliers_removed_merged %>%
+  tidyr::pivot_longer(
+    cols = -c(gender, dxgroupFK, agevisit),
+    names_to = "test",
+    values_to = "score"
+  ) %>%
+  dplyr::filter(!is.na(score)) %>%
+  dplyr::group_by(test) %>%
+  tidyr::nest() %>%
+  dplyr::mutate(
+    model = purrr::map(data, ~ lm(score ~ factor(dxgroupFK)    , data = .x)),
+    tidy  = purrr::map(model, broom::tidy)
+  ) %>%
+  tidyr::unnest(tidy) %>%
+  dplyr::filter(term == "factor(dxgroupFK)1") %>%
+  dplyr::select(test, estimate, statistic, p.value) %>%
+  dplyr::rename(
+    Test = test,
+    Beta = estimate,
+    t_value = statistic,
+    p_value = p.value
+  ) %>%
+  dplyr::arrange(p_value)
+lm_results_merged
+ 
+```
+
+```{r}
+# Variables to check
+target_var <- "trnsctrw"
+
+other_vars <- c(
+  "cwiisrw",
+  "trlnctrw",
+  "cwicnrw",
+ # "trnsctrw",
+  "trmsctrw",
+  "cwiirw",
+  "cwiwrrw"
+)
+
+# Optional: include subject ID if you have one
+id_var <- "stdyptid"
+
+# Step 1: compute +2 SD cutoff for target variable
+target_cutoff <- mean(df[[target_var]], na.rm = TRUE) + 2 * sd(df[[target_var]], na.rm = TRUE)
+
+# Step 2: identify people above +2 SD in trlnctrw
+target_outliers <- df %>%
+  filter(!is.na(.data[[target_var]])) %>%
+  filter(.data[[target_var]] > target_cutoff)
+
+# Step 3: compute +2 SD cutoffs for the other tests
+other_cutoffs <- sapply(other_vars, function(v) {
+  mean(df[[v]], na.rm = TRUE) + 1 * sd(df[[v]], na.rm = TRUE)
+})
+
+# Step 4: create flags showing whether each trlnctrw outlier is also extreme in other tests
+outlier_check <- target_outliers %>%
+  mutate(
+    across(
+      all_of(other_vars),
+      ~ .x > other_cutoffs[cur_column()],
+      .names = "{.col}_gt2sd"
+    )
+  )
+
+# Step 5: view subject IDs, raw scores, and flags
+ 
+
+outlier_check %>%
+  select(
+    all_of(c(id_var,"dxgroupFK", target_var, other_vars,
+             paste0(other_vars, "_gt2sd"))))
+
+outlier_check_long <- outlier_check %>%
+  select(all_of(c(id_var, "dxgroupFK", target_var, other_vars))) %>%
+  pivot_longer(
+    cols = all_of(other_vars),
+    names_to = "test",
+    values_to = "score",
+  ) %>%
+  mutate(
+    cutoff_2sd = other_cutoffs[test],
+    extreme_gt2sd = score > cutoff_2sd
+  ) %>%
+  arrange(.data[[id_var]], test)
+
+outlier_check_counts <- outlier_check %>%
+  rowwise() %>%
+  mutate(
+    n_other_tests_gt2sd = sum(c_across(ends_with("_gt2sd")), na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  select(all_of(c("dxgroupFK",id_var, target_var, "n_other_tests_gt2sd")),
+         ends_with("_gt2sd"))
+outlier_check_long
+outlier_check_counts
+```
 
 
+```{r}
 # =========================================================
 # Boxplots of cleaned cognitive scores for MERGED dataset
 # Useful for compact visual group comparison
@@ -328,11 +477,11 @@ anova_results_matched
 
 outliers_removed_merged %>%
   tidyr::pivot_longer(
-    cols = -c(stdyptid, dxgroupFK, gender),
+    cols = -c(dxgroupFK, gender),
     names_to = "test",
     values_to = "score"
   ) %>%
-  ggplot(aes(x = factor(dxgroupFK), y = score, fill = factor(dxgroupFK))) +
+  ggplot(aes(x = factor(dxgroupFK), y = score,  fill = factor(gender))) +
   geom_boxplot() +
   facet_wrap(~ test, scales = "free") +
   theme_bw() +
@@ -343,18 +492,17 @@ outliers_removed_merged %>%
     fill = "Group"
   )
 
-
 # =========================================================
 # Boxplots of cleaned cognitive scores for MATCHED dataset
 # =========================================================
 
 outliers_removed_matched %>%
   tidyr::pivot_longer(
-    cols = -c(stdyptid, dxgroupFK, gender),
+    cols = -c(dxgroupFK, gender),
     names_to = "test",
     values_to = "score"
   ) %>%
-  ggplot(aes(x = factor(dxgroupFK), y = score, fill = factor(dxgroupFK))) +
+  ggplot(aes(x = factor(dxgroupFK), y = score, fill = factor(gender))) +
   geom_boxplot() +
   facet_wrap(~ test, scales = "free") +
   theme_bw() +
@@ -362,8 +510,91 @@ outliers_removed_matched %>%
     title = "Cognitive Scores by Group (Matched)",
     x = "Group",
     y = "Cognitive Score",
-    fill = "Group"
+    fill = "Sex"
   )
 
-
 ```
+
+```{r}
+# Perform PCA on numeric variables after log transformation and scaling
+pca_result <- outliers_removed_merged %>%
+  select(where(is.numeric)) %>%   
+  select(-c("agevisit", 'dxgroupFK', 'gender')) %>%  
+  select(where(~ !all(is.na(.)))) %>%               # drop all-NA columns
+  mutate(
+    across(everything(), ~ log10(. + 1))            
+  ) %>%
+  mutate(
+    # flip direction so that higher = better performance
+      trnsctrw = -trnsctrw,
+  trlnctrw = -trlnctrw,
+  trmsctrw = -trmsctrw,
+  ) %>%
+  mutate(
+    across(everything(), scale)                     
+  ) %>%
+  psych::principal(nfactors = 2, rotate = "promax")
+
+# Create a dataframe that includes non-cognitive variables (e.g., age, diagnosis)
+outliers_removed_df <- df %>% 
+  filter(stdyptid %in% outliers_removed$stdyptid)
+
+# Bind PCA scores to the full dataframe and flip direction so that higher = better performance
+outliers_removed_merged_pc <- cbind(as.data.frame(outliers_removed_merged), pca_result$scores)
+# View the final dataframe with PCA scores
+
+# flip direction so that higher = better performance
+loadings_df <- as.data.frame(unclass(pca_result$loadings)) %>%
+  tibble::rownames_to_column("variable")  
+loadings_df
+ggplot(loadings_df, aes(x = reorder(variable, RC2), y = RC2)) +
+  geom_col(width = 0.7) +
+  coord_flip() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_text(aes(label = round(RC2, 2)),
+            hjust = ifelse(loadings_df$RC2 > 0, -0.15, 1.15),
+            size = 4) +
+  expand_limits(y = c(min(loadings_df$RC2) - 0.15,
+                      max(loadings_df$loRC1ading) + 0.15)) +
+  labs(
+    title = "PC2 loadings",
+    x = NULL,
+    y = "Loading"
+  ) +
+  theme_minimal(base_size = 13)
+
+
+ggplot(loadings_df, aes(x = reorder(variable, RC1), y = RC1)) +
+  geom_col(width = 0.7) +
+  coord_flip() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_text(aes(label = round(RC1, 2)),
+            hjust = ifelse(loadings_df$RC1 > 0, -0.15, 1.15),
+            size = 4) +
+  expand_limits(y = c(min(loadings_df$RC1RC1) - 0.15,
+                      max(loadings_df$loRC1ading) + 0.15)) +
+  labs(
+    title = "RC1 loadings",
+    x = NULL,
+    y = "Loading"
+  ) +
+  theme_minimal(base_size = 13)
+
+# the color naming scores load negatively on RC2 suggesting that this component is EF - that the lower the the loadings, the better/higher the cog performance is
+# while for Rc1, speed of processing loads negatively on it, suggsting that the lower the score, the better the cognitive performance,   
+
+
+# Extract eigenvalues from the PCA result
+eigenvalues <- pca_result$values
+ # Calculate the proportion of variance explained by each principal component
+variance_explained <- eigenvalues / sum(eigenvalues)
+
+# Create a scree plot
+plot(1:length(variance_explained), variance_explained, type = "b", 
+     xlab = "Principal Component", ylab = "Proportion of Variance Explained",
+     main = "Scree Plot")
+variance_explained
+
+ 
+```
+
