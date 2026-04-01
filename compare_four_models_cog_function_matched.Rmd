@@ -23,56 +23,6 @@ merged_df
 ```
   
 ```{r}
-# =========================
-# Data import / pre processing
-# =========================
-# 
-# # Read source data
-# path <- file.path(
-#   "..", "data_original",
-#   "Master_BAI_080720_with_051517completers_060117imagingmaster_genotypes_brainages_ENIGMA_FS_MERGEFK_30122020.sav")
-# 
-# original_df <- haven::read_sav(path)
-# 
-# original_df <- original_df %>%
-#   dplyr::select(
-#     BDI,
-#     agevisit,
-#     dxgroupFK,
-# 
-#     # DKEFS Trails
-#     trvsoerw,   # visual scanning omission errors
-#     trvscerw,   # visual scanning commission errors
-#     trnsctrw,   # number sequencing completion time (TMT A)
-#     trlnctrw,   # letter-number sequencing completion time (TMT B)
-#     trmsctrw,   # motor speed completion time
-#     stroop,
-#     # DKEFS Color-Word Interference
-#     cwicnrw,    # color naming raw
-#     cwiwrrw,    # word reading raw
-#     cwiirw,     # inhibition raw
-#     cwiisrw,    # inhibition/switching raw
-#     gender,
-# 
-#     
-#     # Clinical measures
-#     scid_a1,    # current GAF
-#     panspos,    # PANSS positive
-#     pansneg,    # PANSS negative
-#     pansgen,    # PANSS general
-#     ymrstot,
-#     hamtot17,
-#     hamtot28,
-#     HistoryPsychosis,
-#     visit,
-#     stdyptid
-#   )
-# 
-# # Remove NAs within each participant, then keep baseline only
-# # Note: this preserves your original approach exactly
-# original_df <- setDT(original_df)[, lapply(.SD, na.omit), by = stdyptid] 
-# original_df <- original_df %>% filter(visit == 0) %>% mutate(visit = 'Baseline') 
-#  
 merged_df <- merged_df   %>% filter(visit == 0) %>% mutate(visit = 'Baseline') 
 merged_df<- setDT(merged_df)[, lapply(.SD, na.omit), by = stdyptid] 
 merged_df
@@ -394,72 +344,72 @@ lm_results_merged
 
 ```{r}
 # Variables to check
-target_var <- "trnsctrw"
-
-other_vars <- c(
-  "cwiisrw",
-  "trlnctrw",
-  "cwicnrw",
- # "trnsctrw",
-   "cwiirw",
-  "cwiwrrw"
-)
-
-# Optional: include subject ID if you have one
-id_var <- "stdyptid"
-
-# Step 1: compute +2 SD cutoff for target variable
-target_cutoff <- mean(df[[target_var]], na.rm = TRUE) + 2 * sd(df[[target_var]], na.rm = TRUE)
-
-# Step 2: identify people above +2 SD in trlnctrw
-target_outliers <- df %>%
-  filter(!is.na(.data[[target_var]])) %>%
-  filter(.data[[target_var]] > target_cutoff)
-
-# Step 3: compute +2 SD cutoffs for the other tests
-other_cutoffs <- sapply(other_vars, function(v) {
-  mean(df[[v]], na.rm = TRUE) + 1 * sd(df[[v]], na.rm = TRUE)
-})
-
-# Step 4: create flags showing whether each trlnctrw outlier is also extreme in other tests
-outlier_check <- target_outliers %>%
-  mutate(
-    across(
-      all_of(other_vars),
-      ~ .x > other_cutoffs[cur_column()],
-      .names = "{.col}_gt2sd"
-    )
-  )
-
-# Step 5: view subject IDs, raw scores, and flags
- 
-
-outlier_check %>%
-  select(
-    all_of(c(id_var,"dxgroupFK", target_var, other_vars,
-             paste0(other_vars, "_gt2sd"))))
-
-outlier_check_long <- outlier_check %>%
-  select(all_of(c(id_var, "dxgroupFK", target_var, other_vars))) %>%
-  pivot_longer(
-    cols = all_of(other_vars),
-    names_to = "test",
-    values_to = "score",
-  ) %>%
-  mutate(
-    cutoff_2sd = other_cutoffs[test],
-    extreme_gt2sd = score > cutoff_2sd
-  ) %>%
-  arrange(.data[[id_var]], test)
-
-outlier_check_counts <- outlier_check %>%
-  rowwise() %>%
-  mutate(
-    n_other_tests_gt2sd = sum(c_across(ends_with("_gt2sd")), na.rm = TRUE)
-  ) %>%
-  ungroup() %>%
-  select(all_of(c("dxgroupFK",id_var, target_var, "n_other_tests_gt2sd")),
-         ends_with("_gt2sd"))
+# target_var <- "trnsctrw"
+# 
+# other_vars <- c(
+#   "cwiisrw",
+#   "trlnctrw",
+#   "cwicnrw",
+#  # "trnsctrw",
+#    "cwiirw",
+#   "cwiwrrw"
+# )
+# 
+# # Optional: include subject ID if you have one
+# id_var <- "stdyptid"
+# 
+# # Step 1: compute +2 SD cutoff for target variable
+# target_cutoff <- mean(df[[target_var]], na.rm = TRUE) + 2 * sd(df[[target_var]], na.rm = TRUE)
+# 
+# # Step 2: identify people above +2 SD in trlnctrw
+# target_outliers <- df %>%
+#   filter(!is.na(.data[[target_var]])) %>%
+#   filter(.data[[target_var]] > target_cutoff)
+# 
+# # Step 3: compute +2 SD cutoffs for the other tests
+# other_cutoffs <- sapply(other_vars, function(v) {
+#   mean(df[[v]], na.rm = TRUE) + 1 * sd(df[[v]], na.rm = TRUE)
+# })
+# 
+# # Step 4: create flags showing whether each trlnctrw outlier is also extreme in other tests
+# outlier_check <- target_outliers %>%
+#   mutate(
+#     across(
+#       all_of(other_vars),
+#       ~ .x > other_cutoffs[cur_column()],
+#       .names = "{.col}_gt2sd"
+#     )
+#   )
+# 
+# # Step 5: view subject IDs, raw scores, and flags
+#  
+# 
+# outlier_check %>%
+#   select(
+#     all_of(c(id_var,"dxgroupFK", target_var, other_vars,
+#              paste0(other_vars, "_gt2sd"))))
+# 
+# outlier_check_long <- outlier_check %>%
+#   select(all_of(c(id_var, "dxgroupFK", target_var, other_vars))) %>%
+#   pivot_longer(
+#     cols = all_of(other_vars),
+#     names_to = "test",
+#     values_to = "score",
+#   ) %>%
+#   mutate(
+#     cutoff_2sd = other_cutoffs[test],
+#     extreme_gt2sd = score > cutoff_2sd
+#   ) %>%
+#   arrange(.data[[id_var]], test)
+# 
+# outlier_check_counts <- outlier_check %>%
+#   rowwise() %>%
+#   mutate(
+#     n_other_tests_gt2sd = sum(c_across(ends_with("_gt2sd")), na.rm = TRUE)
+#   ) %>%
+#   ungroup() %>%
+#   select(all_of(c("dxgroupFK",id_var, target_var, "n_other_tests_gt2sd")),
+#          ends_with("_gt2sd"))
  
 ```
 
@@ -493,7 +443,7 @@ outliers_removed_merged %>%
 
 outliers_removed_matched %>%
   tidyr::pivot_longer(
-    cols = -c(dxgroupFK, gender),
+    cols = -c(dxgroupFK, gender,agevisit, stdyptid),
     names_to = "test",
     values_to = "score"
   ) %>%
@@ -541,18 +491,18 @@ outliers_removed_merged_pc <-outliers_removed_merged %>%
 
 loadings_df <- as.data.frame(unclass(pca_result$loadings*1)) %>%
   tibble::rownames_to_column("variable") %>% 
-  mutate(RC1    = round(PC1   , 2),
-         RC2    = round(PC2   , 2))
+  mutate(PC1    = round(PC1   , 2),
+         PC2    = round(PC2   , 2))
  
-ggplot(loadings_df, aes(x = reorder(variable, RC2), y = RC2)) +
+ggplot(loadings_df, aes(x = reorder(variable, PC2), y = PC2)) +
   geom_col(width = 0.7) +
   coord_flip() +
   geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_text(aes(label = round(RC2, 2)),
-            hjust = ifelse(loadings_df$RC2 > 0, -0.15, 1.15),
+  geom_text(aes(label = round(PC2, 2)),
+            hjust = ifelse(loadings_df$PC2 > 0, -0.15, 1.15),
             size = 4) +
-  expand_limits(y = c(min(loadings_df$RC2) - 0.15,
-                      max(loadings_df$RC2) + 0.15)) +
+  expand_limits(y = c(min(loadings_df$PC2) - 0.15,
+                      max(loadings_df$PC2) + 0.15)) +
   labs(
     title = "PC2 loadings",
     x = NULL,
@@ -560,16 +510,16 @@ ggplot(loadings_df, aes(x = reorder(variable, RC2), y = RC2)) +
   ) +
   theme_minimal(base_size = 13)
 
-ggplot(loadings_df, aes(x = reorder(variable, RC1), y = RC1)) +
+ggplot(loadings_df, aes(x = reorder(variable, PC1), y = PC1)) +
   geom_col(width = 0.7) +
   coord_flip() +
   geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_text(aes(label = round(RC1, 2)),
-            hjust = ifelse(loadings_df$RC1 > 0, -0.15, 1.15),
+  geom_text(aes(label = round(PC1, 2)),
+            hjust = ifelse(loadings_df$PC1 > 0, -0.15, 1.15),
             size = 4) +
-  expand_limits(y = c(min(loadings_df$RC1) - 0.15,
-                      max(loadings_df$RC1) + 0.15)) +
-  labs(title = "RC1 loadings",
+  expand_limits(y = c(min(loadings_df$PC1) - 0.15,
+                      max(loadings_df$PC1) + 0.15)) +
+  labs(title = "PC1 loadings",
     x = NULL,
     y = "Loading"
   ) + theme_minimal(base_size = 13)
@@ -607,10 +557,9 @@ plot(1:length(variance_explained), variance_explained, type = "b",
 #   seed = 123
 # ) 
  
-cor.test(outliers_removed_merged_pc$stroop1, outliers_removed_merged_pc$RC1)
- outliers_removed_merged_pc
-outliers_removed_merged_pc
- temp_analysis_df <- outliers_removed_merged_pc %>%
+cor.test(outliers_removed_merged_pc$stroop1, outliers_removed_merged_pc$PC1)
+
+temp_analysis_df <- outliers_removed_merged_pc %>%
   left_join(
     outliers_removed_df %>%
       select(stdyptid, bpad_ridge, bpad_photon, bpad_BrainAgeR, bpad_cnn),
@@ -624,6 +573,7 @@ temp_analysis_df
 
 temp_analysis_df <- temp_analysis_df %>%
   dplyr::filter(!is.na(bpad_ridge))
+temp_analysis_df
 # Regress PC1 on residualized bpad_photon
 
 resid_mod <- lm(bpad_ridge ~ agevisit + gender, data = temp_analysis_df)
@@ -631,7 +581,7 @@ resid_mod <- lm(bpad_ridge ~ agevisit + gender, data = temp_analysis_df)
 resid_bpad_ridge <- resid(resid_mod)
 summary(resid_mod) 
 
-pca_cog_mod <- lm(RC2 ~ resid_bpad_ridge*dxgroupFK, data = temp_analysis_df)
+pca_cog_mod <- lm(PC1 ~ resid_bpad_ridge*dxgroupFK, data = temp_analysis_df)
 summary(pca_cog_mod)
  
 # Get partial eta squared
@@ -640,24 +590,34 @@ getPartialEtaSq(pca_cog_mod)
 # resid_bpad_ridge	0.178			
 # dxgroupFK	0.053			
 # resid_bpad_ridge:dxgroupFK	0.015	
+
+
+
+
+# Regress PC1 on residualized bpad_photon
+pca_cog_mod <- lm(PC1 ~ bpad_ridge*dxgroupFK + gender + agevisit, data = temp_analysis_df)
+summary(pca_cog_mod)
+ 
+
   
 ```
 
 ### PHOTON Bpad
 ```{r}
 temp_analysis_df <- temp_analysis_df %>%
-  dplyr::filter(!is.na(bpad_photon)) 
+  dplyr::filter(!is.na(bpad_photon))
+
 resid_mod <- lm(bpad_photon ~    agevisit, data = temp_analysis_df)
 resid_bpad_photon <- resid(resid_mod)
 summary(resid_mod)
 
-pca_cog_mod <- lm(RC1 ~  resid_bpad_photon*dxgroupFK  , data = temp_analysis_df)
+pca_cog_mod <- lm(PC1 ~  resid_bpad_photon*dxgroupFK  , data = temp_analysis_df)
 summary(pca_cog_mod)
 getPartialEtaSq(pca_cog_mod)
 
 
 # Regress PC1 on residualized bpad_photon
-pca_cog_mod <- lm(RC1 ~ bpad_photon*dxgroupFK + gender + agevisit, data = temp_analysis_df)
+pca_cog_mod <- lm(PC1 ~ bpad_photon*dxgroupFK + gender + agevisit, data = temp_analysis_df)
 summary(pca_cog_mod)
  
 
@@ -671,6 +631,7 @@ temp_analysis_df <- temp_analysis_df %>%
   filter(
      !is.na(bpad_BrainAgeR),
    )
+temp_analysis_df
 resid_mod <- lm(bpad_BrainAgeR ~    agevisit, data = temp_analysis_df)
 resid_bpad_BrainAgeR <- resid(resid_mod)
 summary(resid_mod)
@@ -679,15 +640,10 @@ summary(pca_cog_mod)
 getPartialEtaSq(pca_cog_mod) 
 
 # Regress PC1 on residualized bpad_photon
-pca_cog_mod <- lm(RC2 ~ bpad_BrainAgeR*dxgroupFK + gender + agevisit, data = temp_analysis_df)
+pca_cog_mod <- lm(PC1 ~ bpad_BrainAgeR*dxgroupFK + gender + agevisit, data = temp_analysis_df)
 summary(pca_cog_mod)
+
  
-
-
-
-# Regress PC1 on residualized bpad_photon
-pca_cog_mod <- lm(RC2 ~ bpad_cnn*dxgroupFK + gender + agevisit, data = temp_analysis_df)
-summary(pca_cog_mod)
 ```
 
 
@@ -701,10 +657,13 @@ temp_analysis_df <- temp_analysis_df %>%
 resid_mod <- lm(bpad_cnn ~    agevisit, data = temp_analysis_df)
 resid_bpad_bpad_cnn <- resid(resid_mod)
 summary(resid_mod)
-pca_cog_mod <- lm(RC2 ~  resid_bpad_cnn*dxgroupFK  , data = temp_analysis_df)
+resid_bpad_bpad_cnn
+pca_cog_mod <- lm(PC1 ~  resid_bpad_cnn*dxgroupFK  , data = temp_analysis_df)
 summary(pca_cog_mod)
 getPartialEtaSq(pca_cog_mod) 
 
-
+# Regress PC1 on residualized bpad_photon
+pca_cog_mod <- lm(PC1 ~ bpad_cnn*dxgroupFK + gender + agevisit, data = temp_analysis_df)
+summary(pca_cog_mod)
 ```
 
