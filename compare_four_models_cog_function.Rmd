@@ -28,8 +28,7 @@ library(dplyr)
 original_df <- haven::read_sav(path)
 original_df <- original_df %>%
   dplyr::mutate(
-    BDI = ifelse(dxgroupFK == 0, 0, BDI)
-  )
+    BDI = ifelse(dxgroupFK == 0, 0, BDI))
 
 # Keep only variables used downstream
 original_df <- original_df %>%
@@ -69,8 +68,8 @@ s# Remove NAs within each participant, then keep baseline only
 # Note: this preserves your original approach exactly
 original_df <- setDT(original_df)[, lapply(.SD, na.omit), by = stdyptid] 
 original_df <- original_df %>% filter(visit == 0) %>% mutate(visit = 'Baseline') 
-
-
+ original_df <-original_df %>%
+  dplyr::left_join(derived_vars, by = "stdyptid")
 ```
  
 ### Load df_all_brainage_2025.csv to obtain the Brain Ages from all four algorithms
@@ -121,6 +120,8 @@ original_df <- original_df %>%
 
 df <- df %>%
   dplyr::mutate(dxgroupFK = as.numeric(haven::as_factor(dxgroupFK)))
+
+colnames(df)
 ```
 
 ### Merge clinical variables with brain age df
@@ -396,8 +397,9 @@ summary_stats %>%
 # Flip loadings and scores if you want higher PC1 = better performance
 loadings_df <- as.data.frame(unclass(pca_result$loadings)) %>%
   tibble::rownames_to_column("variable") %>%
-  rename(loading = RC2) %>%
+  rename(loading = PC1) %>%
   mutate(loading = -loading)
+loadings_df
 
 ggplot(loadings_df, aes(x = reorder(variable, loading), y = loading)) +
   geom_col(width = 0.7) +
@@ -415,7 +417,7 @@ ggplot(loadings_df, aes(x = reorder(variable, loading), y = loading)) +
   ) +
   theme_minimal(base_size = 13)
  
-
+pca_result
  
  
 ```
@@ -459,7 +461,7 @@ resid_bpad_ridge <- resid(resid_mod)
 summary(resid_mod)
 
 # Regress PC1 on residualized bpad_photon
-pca_cog_mod <- lm(RC2 ~ resid_bpad_ridge*dxgroupFK, data = filtered_df)
+pca_cog_mod <- lm(PC1 ~ resid_bpad_ridge, data = filtered_df)
 summary(pca_cog_mod)
 
 # age of HC vs BD for multimodal
@@ -490,7 +492,7 @@ getPartialEtaSq(pca_cog_hp_mod)
 resid_mod <- lm(bpad_photon ~   gender*agevisit, data = outliers_removed_df_pc)
 resid_bpad_photon <- resid(resid_mod)
 summary(resid_mod)
-pca_cog_mod <- lm(PC1 ~  resid_bpad_photon*dxgroupFK  , data = outliers_removed_df_pc)
+pca_cog_mod <- lm(PC1 ~  resid_bpad_photon  , data = outliers_removed_df_pc)
 summary(pca_cog_mod)
 getPartialEtaSq(pca_cog_mod) 
 
@@ -509,9 +511,8 @@ getPartialEtaSq(pca_cog_hp_mod)
 ```{r}
 resid_mod <- lm(bpad_BrainAgeR ~   gender*agevisit, data = outliers_removed_df_pc)
 resid_bpad_BrainAgeR <- resid(resid_mod)
-grubbs.test(resid_bpad_BrainAgeR)
-summary(resid_mod)
-pca_cog_mod <- lm(RC1 ~  resid_bpad_BrainAgeR*dxgroupFK , data = outliers_removed_df_pc)
+ summary(resid_mod)
+pca_cog_mod <- lm(PC1 ~  resid_bpad_BrainAgeR , data = outliers_removed_df_pc)
 summary(pca_cog_mod)
 getPartialEtaSq(pca_cog_mod) 
 
@@ -530,7 +531,7 @@ resid_mod <- lm(bpad_cnn ~   gender*agevisit, data = outliers_removed_df_pc)
 resid_bpad_cnn <- resid(resid_mod)
 grubbs.test(resid_bpad_cnn)
  
-pca_cog_mod <- lm(RC1 ~ resid_bpad_cnn*dxgroupFK, data = outliers_removed_df_pc)
+pca_cog_mod <- lm(PC1 ~ resid_bpad_cnn, data = outliers_removed_df_pc)
 summary(pca_cog_mod) 
 getPartialEtaSq(pca_cog_mod) 
  
@@ -734,7 +735,7 @@ dev.off()
 # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3577045/ PCA to run on DKEFS
 # Ensure constant is computed properly
 constant <- abs(min(outliers_removed$tmtb_a, na.rm = TRUE)) + 1
-
+write.csv(outliers_removed, "outliers_removed_with_stroop_tmtb_a.csv") 
 # Shift tmtb_a to be all positive
 outliers_removed$tmtb_a <- outliers_removed$tmtb_a + constant
 

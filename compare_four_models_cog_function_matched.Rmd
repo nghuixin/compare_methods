@@ -13,73 +13,69 @@ source("R/helper_functions.R")
 
 source("R/load_brainage_df.R")
 source("R/load_merged_df.R")
-
-renv::activate()
-# renv::restore()
+merged_df <- load_merged_analysis_df()
+ # renv::restore()
  # renv::snapshot(type = "implicit")
 # renv::restore()
 # renv::status()
- 
+merged_df
+
 ```
   
 ```{r}
 # =========================
 # Data import / pre processing
 # =========================
-
-# Read source data
-path <- file.path(
-  "..", "data_original",
-  "Master_BAI_080720_with_051517completers_060117imagingmaster_genotypes_brainages_ENIGMA_FS_MERGEFK_30122020.sav"
-)
-
-original_df <- haven::read_sav(path)
-original_df <- original_df %>%
-  dplyr::mutate(
-    BDI = ifelse(dxgroupFK == 0, 0, BDI))
-
-# Keep only variables used downstream
-original_df <- original_df %>%
-  dplyr::select(
-    BDI,
-    agevisit,
-    dxgroupFK,
-
-    # DKEFS Trails
-    trvsoerw,   # visual scanning omission errors
-    trvscerw,   # visual scanning commission errors
-    trnsctrw,   # number sequencing completion time (TMT A)
-    trlnctrw,   # letter-number sequencing completion time (TMT B)
-    trmsctrw,   # motor speed completion time
-
-    # DKEFS Color-Word Interference
-    cwicnrw,    # color naming raw
-    cwiwrrw,    # word reading raw
-    cwiirw,     # inhibition raw
-    cwiisrw,    # inhibition/switching raw
-    gender,
-
-    
-    # Clinical measures
-    scid_a1,    # current GAF
-    panspos,    # PANSS positive
-    pansneg,    # PANSS negative
-    pansgen,    # PANSS general
-    ymrstot,
-    hamtot17,
-    hamtot28,
-    HistoryPsychosis,
-
-    visit,
-    stdyptid
-  )
-
-# Remove NAs within each participant, then keep baseline only
-# Note: this preserves your original approach exactly
-original_df <- setDT(original_df)[, lapply(.SD, na.omit), by = stdyptid] 
-original_df <- original_df %>% filter(visit == 0) %>% mutate(visit = 'Baseline') 
-
-
+# 
+# # Read source data
+# path <- file.path(
+#   "..", "data_original",
+#   "Master_BAI_080720_with_051517completers_060117imagingmaster_genotypes_brainages_ENIGMA_FS_MERGEFK_30122020.sav")
+# 
+# original_df <- haven::read_sav(path)
+# 
+# original_df <- original_df %>%
+#   dplyr::select(
+#     BDI,
+#     agevisit,
+#     dxgroupFK,
+# 
+#     # DKEFS Trails
+#     trvsoerw,   # visual scanning omission errors
+#     trvscerw,   # visual scanning commission errors
+#     trnsctrw,   # number sequencing completion time (TMT A)
+#     trlnctrw,   # letter-number sequencing completion time (TMT B)
+#     trmsctrw,   # motor speed completion time
+#     stroop,
+#     # DKEFS Color-Word Interference
+#     cwicnrw,    # color naming raw
+#     cwiwrrw,    # word reading raw
+#     cwiirw,     # inhibition raw
+#     cwiisrw,    # inhibition/switching raw
+#     gender,
+# 
+#     
+#     # Clinical measures
+#     scid_a1,    # current GAF
+#     panspos,    # PANSS positive
+#     pansneg,    # PANSS negative
+#     pansgen,    # PANSS general
+#     ymrstot,
+#     hamtot17,
+#     hamtot28,
+#     HistoryPsychosis,
+#     visit,
+#     stdyptid
+#   )
+# 
+# # Remove NAs within each participant, then keep baseline only
+# # Note: this preserves your original approach exactly
+# original_df <- setDT(original_df)[, lapply(.SD, na.omit), by = stdyptid] 
+# original_df <- original_df %>% filter(visit == 0) %>% mutate(visit = 'Baseline') 
+#  
+merged_df <- merged_df   %>% filter(visit == 0) %>% mutate(visit = 'Baseline') 
+merged_df<- setDT(merged_df)[, lapply(.SD, na.omit), by = stdyptid] 
+merged_df
 ```
 
 
@@ -88,11 +84,10 @@ original_df <- original_df %>% filter(visit == 0) %>% mutate(visit = 'Baseline')
 # =========================
 # Simple age matching (no extra packages)
 # =========================
-
-# Split groups
+ # Split groups
 bd <- merged_df %>% dplyr::filter(dxgroupFK == 1)   # BD
 hc <- merged_df %>% dplyr::filter(dxgroupFK == 0)   # HC
-
+merged_df
 # Sort by age (helps stability)
 bd <- bd %>% arrange(agevisit)
 hc <- hc %>% arrange(agevisit)
@@ -168,9 +163,9 @@ bind_rows(
 ```
 
 
-### Data cleaning for cognitive variablesS
+### Data cleaning for cognitive variables 
 ```{r}
-
+merged_df
 # Cognitive test variables
 cog_vars <- c(
  # "trvsoerw", # DKEFS - Trails Visual Scanning Omission Errors Raw (Misses)
@@ -184,18 +179,20 @@ cog_vars <- c(
   "cwiisrw",  # DKEFS - Color Word Interference - Inhibition/Switching Raw
 "agevisit",
   "dxgroupFK",
-  "gender")
+"stroop1","stroop2","tmtb_a","stdyptid","gender")
 
 cog_test_scores_merged <-merged_df %>% dplyr::select(cog_vars)
 cog_test_scores_matched <-matched_df %>% dplyr::select(cog_vars)
- 
-# =========================================================
+cog_test_scores_merged
+
 # Remove outliers from cognitive scores
 # Using the helper function defined earlier
 # =========================================================
 
 outliers_removed_merged  <- remove_sd_outliers(cog_test_scores_merged,   n_sd = 2)
 outliers_removed_matched <- remove_sd_outliers(cog_test_scores_matched, n_sd = 2)
+
+ 
 ```
 ```{r}
 # =========================================================
@@ -218,7 +215,7 @@ normality_matched > 0.05
 ```{r} 
 cog_test_scores_matched%>%
   tidyr::pivot_longer(
-    cols = -c(gender, dxgroupFK, agevisit),
+    cols = -c(gender, dxgroupFK, agevisit,stdyptid),
     names_to = "test",
     values_to = "score"
   ) %>%
@@ -243,7 +240,7 @@ cog_test_scores_matched%>%
 
 cog_test_scores_matched%>%
   tidyr::pivot_longer(
-    cols = -c(gender, dxgroupFK, agevisit),
+    cols = -c(gender, dxgroupFK, agevisit, stdyptid),
     names_to = "test",
     values_to = "score"
   ) %>%
@@ -267,7 +264,7 @@ cog_test_scores_matched%>%
 
 lm_results_matched <- outliers_removed_matched %>%
   tidyr::pivot_longer(
-    cols = -c(gender, dxgroupFK, agevisit),
+    cols = -c(gender, dxgroupFK, agevisit,stdyptid),
     names_to = "test",
     values_to = "score"
   ) %>%
@@ -292,7 +289,7 @@ lm_results_matched
 
 lm_results_matched <- outliers_removed_matched %>%
   tidyr::pivot_longer(
-    cols = -c(gender, dxgroupFK, agevisit),
+    cols = -c(gender, dxgroupFK, agevisit,stdyptid),
     names_to = "test",
     values_to = "score"
   ) %>%
@@ -320,7 +317,7 @@ print(lm_results_matched)
 # before remove outliers
 cog_test_scores_merged%>%
   tidyr::pivot_longer(
-    cols = -c(gender, dxgroupFK, agevisit),
+    cols = -c(gender, dxgroupFK, agevisit, stdyptid),
     names_to = "test",
     values_to = "score"
   ) %>%
@@ -345,7 +342,7 @@ cog_test_scores_merged%>%
 # outliers removed
 lm_results_merged <- outliers_removed_merged %>%
   tidyr::pivot_longer(
-    cols = -c(gender, dxgroupFK, agevisit),
+    cols = -c(gender, dxgroupFK, agevisit,stdyptid),
     names_to = "test",
     values_to = "score"
   ) %>%
@@ -370,7 +367,7 @@ lm_results_merged
 
 lm_results_merged <- outliers_removed_merged %>%
   tidyr::pivot_longer(
-    cols = -c(gender, dxgroupFK, agevisit),
+    cols = -c(gender, dxgroupFK, agevisit,stdyptid),
     names_to = "test",
     values_to = "score"
   ) %>%
@@ -404,8 +401,7 @@ other_vars <- c(
   "trlnctrw",
   "cwicnrw",
  # "trnsctrw",
-  "trmsctrw",
-  "cwiirw",
+   "cwiirw",
   "cwiwrrw"
 )
 
@@ -464,8 +460,7 @@ outlier_check_counts <- outlier_check %>%
   ungroup() %>%
   select(all_of(c("dxgroupFK",id_var, target_var, "n_other_tests_gt2sd")),
          ends_with("_gt2sd"))
-outlier_check_long
-outlier_check_counts
+ 
 ```
 
 
@@ -477,7 +472,7 @@ outlier_check_counts
 
 outliers_removed_merged %>%
   tidyr::pivot_longer(
-    cols = -c(dxgroupFK, gender),
+    cols = -c(dxgroupFK, gender, stdyptid, agevisit),
     names_to = "test",
     values_to = "score"
   ) %>%
@@ -489,7 +484,7 @@ outliers_removed_merged %>%
     title = "Cognitive Scores by Group (Merged)",
     x = "Group",
     y = "Cognitive Score",
-    fill = "Group"
+    fill = "Sex"
   )
 
 # =========================================================
@@ -516,7 +511,6 @@ outliers_removed_matched %>%
 ```
 
 ```{r}
-# Perform PCA on numeric variables after log transformation and scaling
 pca_result <- outliers_removed_merged %>%
   select(where(is.numeric)) %>%   
   select(-c("agevisit", 'dxgroupFK', 'gender')) %>%  
@@ -525,28 +519,31 @@ pca_result <- outliers_removed_merged %>%
     across(everything(), ~ log10(. + 1))            
   ) %>%
   mutate(
-    # flip direction so that higher = better performance
-      trnsctrw = -trnsctrw,
-  trlnctrw = -trlnctrw,
-  trmsctrw = -trmsctrw,
-  ) %>%
-  mutate(
-    across(everything(), scale)                     
-  ) %>%
-  psych::principal(nfactors = 2, rotate = "promax")
-
-# Create a dataframe that includes non-cognitive variables (e.g., age, diagnosis)
-outliers_removed_df <- df %>% 
-  filter(stdyptid %in% outliers_removed$stdyptid)
-
+ #flip direction so that higher = worse performance
+ cwicnrw    = -cwicnrw,
+ cwicnrw    = -cwicnrw,
+ cwiirw     = -cwiirw    ,
+ cwiisrw    = -cwiisrw,
+ stroop1    = -stroop1,
+ stroop2    = -stroop2,
+# tmtb_a     = tmtb_a
+    ) %>%
+  mutate(across(everything(), scale)) %>%  psych::principal(nfactors = 2, rotate = "oblmin")
+  
 # Bind PCA scores to the full dataframe and flip direction so that higher = better performance
-outliers_removed_merged_pc <- cbind(as.data.frame(outliers_removed_merged), pca_result$scores)
+outliers_removed_merged_pc <-outliers_removed_merged %>%
+  left_join(
+    as.data.frame((pca_result$scores*-1)) %>%
+      mutate(stdyptid = outliers_removed_merged$stdyptid),
+    by = "stdyptid")
+    
 # View the final dataframe with PCA scores
 
-# flip direction so that higher = better performance
-loadings_df <- as.data.frame(unclass(pca_result$loadings)) %>%
-  tibble::rownames_to_column("variable")  
-loadings_df
+loadings_df <- as.data.frame(unclass(pca_result$loadings*1)) %>%
+  tibble::rownames_to_column("variable") %>% 
+  mutate(RC1    = round(PC1   , 2),
+         RC2    = round(PC2   , 2))
+ 
 ggplot(loadings_df, aes(x = reorder(variable, RC2), y = RC2)) +
   geom_col(width = 0.7) +
   coord_flip() +
@@ -555,14 +552,13 @@ ggplot(loadings_df, aes(x = reorder(variable, RC2), y = RC2)) +
             hjust = ifelse(loadings_df$RC2 > 0, -0.15, 1.15),
             size = 4) +
   expand_limits(y = c(min(loadings_df$RC2) - 0.15,
-                      max(loadings_df$loRC1ading) + 0.15)) +
+                      max(loadings_df$RC2) + 0.15)) +
   labs(
     title = "PC2 loadings",
     x = NULL,
     y = "Loading"
   ) +
   theme_minimal(base_size = 13)
-
 
 ggplot(loadings_df, aes(x = reorder(variable, RC1), y = RC1)) +
   geom_col(width = 0.7) +
@@ -571,18 +567,12 @@ ggplot(loadings_df, aes(x = reorder(variable, RC1), y = RC1)) +
   geom_text(aes(label = round(RC1, 2)),
             hjust = ifelse(loadings_df$RC1 > 0, -0.15, 1.15),
             size = 4) +
-  expand_limits(y = c(min(loadings_df$RC1RC1) - 0.15,
-                      max(loadings_df$loRC1ading) + 0.15)) +
-  labs(
-    title = "RC1 loadings",
+  expand_limits(y = c(min(loadings_df$RC1) - 0.15,
+                      max(loadings_df$RC1) + 0.15)) +
+  labs(title = "RC1 loadings",
     x = NULL,
     y = "Loading"
-  ) +
-  theme_minimal(base_size = 13)
-
-# the color naming scores load negatively on RC2 suggesting that this component is EF - that the lower the the loadings, the better/higher the cog performance is
-# while for Rc1, speed of processing loads negatively on it, suggsting that the lower the score, the better the cognitive performance,   
-
+  ) + theme_minimal(base_size = 13)
 
 # Extract eigenvalues from the PCA result
 eigenvalues <- pca_result$values
@@ -591,10 +581,130 @@ variance_explained <- eigenvalues / sum(eigenvalues)
 
 # Create a scree plot
 plot(1:length(variance_explained), variance_explained, type = "b", 
-     xlab = "Principal Component", ylab = "Proportion of Variance Explained",
-     main = "Scree Plot")
-variance_explained
+     xlab = "Principal Component", ylab = "Proportion of Variance Explained", main = "Scree Plot")
+```
 
+
+
+# ANALYSIS
+# Linear regression model with bpad as outcome variable
+### Ridge Bpad
+```{r}
+# Filter out rows with missing bpad_ridge
+
+# fit_rc2_adj <- brm(
+#   RC2 ~ bpad_photon* dxgroupFK + agevisit + gender ,
+#   data = temp_analysis_df,
+#   family = gaussian(),
+#   prior = c(
+#     prior(normal(0, 0.5), class = "b"),
+#     prior(normal(0, 1), class = "Intercept"),
+#     prior(student_t(3, 0, 1), class = "sigma")
+#   ),
+#   chains = 4,
+#   iter = 1000,
+#   cores = 4,
+#   seed = 123
+# ) 
  
+cor.test(outliers_removed_merged_pc$stroop1, outliers_removed_merged_pc$RC1)
+ outliers_removed_merged_pc
+outliers_removed_merged_pc
+ temp_analysis_df <- outliers_removed_merged_pc %>%
+  left_join(
+    outliers_removed_df %>%
+      select(stdyptid, bpad_ridge, bpad_photon, bpad_BrainAgeR, bpad_cnn),
+    by = "stdyptid"
+  )
+temp_analysis_df
+```
+
+
+```{r}
+
+temp_analysis_df <- temp_analysis_df %>%
+  dplyr::filter(!is.na(bpad_ridge))
+# Regress PC1 on residualized bpad_photon
+
+resid_mod <- lm(bpad_ridge ~ agevisit + gender, data = temp_analysis_df)
+
+resid_bpad_ridge <- resid(resid_mod)
+summary(resid_mod) 
+
+pca_cog_mod <- lm(RC2 ~ resid_bpad_ridge*dxgroupFK, data = temp_analysis_df)
+summary(pca_cog_mod)
+ 
+# Get partial eta squared
+getPartialEtaSq(pca_cog_mod)
+
+# resid_bpad_ridge	0.178			
+# dxgroupFK	0.053			
+# resid_bpad_ridge:dxgroupFK	0.015	
+  
+```
+
+### PHOTON Bpad
+```{r}
+temp_analysis_df <- temp_analysis_df %>%
+  dplyr::filter(!is.na(bpad_photon)) 
+resid_mod <- lm(bpad_photon ~    agevisit, data = temp_analysis_df)
+resid_bpad_photon <- resid(resid_mod)
+summary(resid_mod)
+
+pca_cog_mod <- lm(RC1 ~  resid_bpad_photon*dxgroupFK  , data = temp_analysis_df)
+summary(pca_cog_mod)
+getPartialEtaSq(pca_cog_mod)
+
+
+# Regress PC1 on residualized bpad_photon
+pca_cog_mod <- lm(RC1 ~ bpad_photon*dxgroupFK + gender + agevisit, data = temp_analysis_df)
+summary(pca_cog_mod)
+ 
+
+```
+
+
+### bpad_BrainAgeR  
+```{r}
+
+temp_analysis_df <- temp_analysis_df %>%
+  filter(
+     !is.na(bpad_BrainAgeR),
+   )
+resid_mod <- lm(bpad_BrainAgeR ~    agevisit, data = temp_analysis_df)
+resid_bpad_BrainAgeR <- resid(resid_mod)
+summary(resid_mod)
+pca_cog_mod <- lm(PC1 ~  resid_bpad_BrainAgeR*dxgroupFK  , data = temp_analysis_df)
+summary(pca_cog_mod)
+getPartialEtaSq(pca_cog_mod) 
+
+# Regress PC1 on residualized bpad_photon
+pca_cog_mod <- lm(RC2 ~ bpad_BrainAgeR*dxgroupFK + gender + agevisit, data = temp_analysis_df)
+summary(pca_cog_mod)
+ 
+
+
+
+# Regress PC1 on residualized bpad_photon
+pca_cog_mod <- lm(RC2 ~ bpad_cnn*dxgroupFK + gender + agevisit, data = temp_analysis_df)
+summary(pca_cog_mod)
+```
+
+
+### bpad_BrainAgeR  
+```{r}
+
+temp_analysis_df <- temp_analysis_df %>%
+  filter(
+     !is.na(bpad_cnn),
+   )
+resid_mod <- lm(bpad_cnn ~    agevisit, data = temp_analysis_df)
+resid_bpad_bpad_cnn <- resid(resid_mod)
+summary(resid_mod)
+pca_cog_mod <- lm(RC2 ~  resid_bpad_cnn*dxgroupFK  , data = temp_analysis_df)
+summary(pca_cog_mod)
+getPartialEtaSq(pca_cog_mod) 
+
+
 ```
 
