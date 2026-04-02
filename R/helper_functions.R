@@ -152,3 +152,123 @@ run_gender_chisq <- function(data, group_col = "dxgroupFK", gender_col = "gender
   gender_table <- table(data[[group_col]], data[[gender_col]])
   chisq.test(gender_table)
 }
+
+plot_loadings <- function(loadings_df, pc = "PC2", title = NULL) {
+  
+  if (is.null(title)) {
+    title <- paste0(pc, " loadings")
+  }
+  
+  ggplot(loadings_df, aes(x = reorder(variable, .data[[pc]]), y = .data[[pc]])) +
+    geom_col(width = 0.7) +
+    coord_flip() +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    geom_text(
+      aes(label = round(.data[[pc]], 2)),
+      hjust = ifelse(loadings_df[[pc]] > 0, -0.15, 1.15),
+      size = 4
+    ) +
+    expand_limits(
+      y = c(min(loadings_df[[pc]]) - 0.15,
+            max(loadings_df[[pc]]) + 0.15)
+    ) +
+    labs(
+      title = title,
+      x = NULL,
+      y = "Loading"
+    ) +
+    theme_minimal(base_size = 13)
+}
+
+  
+run_lm_brainage_model <- function(
+    data,
+    outcome,
+    predictor,
+    group = "dxgroupFK",
+    covariates = c("gender", "agevisit"),
+    interaction = TRUE
+) {
+  
+  vars_needed <- c(outcome, predictor, group, covariates)
+  
+  missing_vars <- setdiff(vars_needed, names(data))
+  if (length(missing_vars) > 0) {
+    stop("These variables are missing from `data`: ",
+         paste(missing_vars, collapse = ", "))
+  }
+  
+  df <- data %>%
+    dplyr::select(dplyr::all_of(vars_needed)) %>%
+    tidyr::drop_na()
+  
+  if (nrow(df) == 0) {
+    stop("No complete cases remain after dropping missing values.")
+  }
+  
+  main_term <- if (interaction) {
+    paste0(predictor, " * ", group)
+  } else {
+    paste0(predictor, " + ", group)
+  }
+  
+  formula_str <- paste0(
+    outcome, " ~ ", main_term,
+    if (length(covariates) > 0) {
+      paste0(" + ", paste(covariates, collapse = " + "))
+    } else {
+      ""
+    }
+  )
+  
+  model_formula <- stats::as.formula(formula_str)
+  model <- stats::lm(model_formula, data = df)
+  
+  list(
+    model = model,
+    summary = summary(model),
+    data_used = df,
+    formula = model_formula
+  )
+}
+
+run_pca <- function(df, n_components) {
+  df %>%
+    select(where(is.numeric)) %>%   
+    select(-c("agevisit", 'dxgroupFK', 'gender')) %>%  
+    select(where(~ !all(is.na(.)))) %>%               # drop all-NA columns
+    mutate(
+      across(everything(), ~ log10(. + 1))            
+    ) %>%
+    mutate(
+      #flip direction so that higher = worse performance
+      cwicnrw    = -cwicnrw,
+      cwicnrw    = -cwicnrw,
+      cwiirw     = -cwiirw    ,
+      cwiisrw    = -cwiisrw,
+      stroop1    = -stroop1,
+      stroop2    = -stroop2,
+     ) %>% mutate(across(everything(), scale)) %>%  psych::principal(nfactors = n_components)
+}
+
+
+get_loadings <- function(pca_result, digits = 2, flip_sign = TRUE) {
+  
+  loadings_mat <- pca_result$loadings
+  
+  if (flip_sign) {
+    loadings_mat <- loadings_mat * -1
+  }
+  
+  loadings_df <- as.data.frame(unclass(loadings_mat)) %>%
+    tibble::rownames_to_column("variable")
+  
+  # Identify PC columns dynamically
+  pc_cols <- setdiff(names(loadings_df), "variable")
+  
+  # Apply rounding across all PCs
+  loadings_df <- loadings_df %>%
+    dplyr::mutate(across(all_of(pc_cols), ~ round(.x, digits)))
+  
+  return(loadings_df)
+}

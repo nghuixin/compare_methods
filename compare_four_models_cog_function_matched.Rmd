@@ -8,9 +8,9 @@ output: html_document
 ```{r setup, include=FALSE}
 
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
 source("R/load_packages.R")
 source("R/helper_functions.R")
-
 source("R/load_brainage_df.R")
 source("R/load_merged_df.R")
 merged_df <- load_merged_analysis_df()
@@ -18,8 +18,7 @@ merged_df <- load_merged_analysis_df()
  # renv::snapshot(type = "implicit")
 # renv::restore()
 # renv::status()
-merged_df
-
+ 
 ```
   
 ```{r}
@@ -129,7 +128,10 @@ cog_vars <- c(
   "cwiisrw",  # DKEFS - Color Word Interference - Inhibition/Switching Raw
 "agevisit",
   "dxgroupFK",
-"stroop1","stroop2","tmtb_a","stdyptid","gender")
+"stroop1",
+"stroop2",
+"tmtb_a",
+"stdyptid","gender")
 
 cog_test_scores_merged <-merged_df %>% dplyr::select(cog_vars)
 cog_test_scores_matched <-matched_df %>% dplyr::select(cog_vars)
@@ -461,103 +463,35 @@ outliers_removed_matched %>%
 ```
 
 ```{r}
-pca_result <- outliers_removed_merged %>%
-  select(where(is.numeric)) %>%   
-  select(-c("agevisit", 'dxgroupFK', 'gender')) %>%  
-  select(where(~ !all(is.na(.)))) %>%               # drop all-NA columns
-  mutate(
-    across(everything(), ~ log10(. + 1))            
-  ) %>%
-  mutate(
- #flip direction so that higher = worse performance
- cwicnrw    = -cwicnrw,
- cwicnrw    = -cwicnrw,
- cwiirw     = -cwiirw    ,
- cwiisrw    = -cwiisrw,
- stroop1    = -stroop1,
- stroop2    = -stroop2,
-# tmtb_a     = tmtb_a
-    ) %>%
-  mutate(across(everything(), scale)) %>%  psych::principal(nfactors = 2, rotate = "oblmin")
-  
-# Bind PCA scores to the full dataframe and flip direction so that higher = better performance
-outliers_removed_merged_pc <-outliers_removed_merged %>%
-  left_join(
-    as.data.frame((pca_result$scores*-1)) %>%
-      mutate(stdyptid = outliers_removed_merged$stdyptid),
-    by = "stdyptid")
-    
-# View the final dataframe with PCA scores
-
-loadings_df <- as.data.frame(unclass(pca_result$loadings*1)) %>%
-  tibble::rownames_to_column("variable") %>% 
-  mutate(PC1    = round(PC1   , 2),
-         PC2    = round(PC2   , 2))
+pca_result_merged   <- run_pca(outliers_removed_merged, 1)
+pca_result_matched  <- run_pca(outliers_removed_matched, 1)
  
-ggplot(loadings_df, aes(x = reorder(variable, PC2), y = PC2)) +
-  geom_col(width = 0.7) +
-  coord_flip() +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_text(aes(label = round(PC2, 2)),
-            hjust = ifelse(loadings_df$PC2 > 0, -0.15, 1.15),
-            size = 4) +
-  expand_limits(y = c(min(loadings_df$PC2) - 0.15,
-                      max(loadings_df$PC2) + 0.15)) +
-  labs(
-    title = "PC2 loadings",
-    x = NULL,
-    y = "Loading"
-  ) +
-  theme_minimal(base_size = 13)
+outliers_removed_merged_pc <- outliers_removed_merged %>%
+  left_join(
+    as.data.frame((pca_result_merged$scores*-1)) %>%
+      mutate(stdyptid = outliers_removed_merged$stdyptid), by = "stdyptid")
 
-ggplot(loadings_df, aes(x = reorder(variable, PC1), y = PC1)) +
-  geom_col(width = 0.7) +
-  coord_flip() +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_text(aes(label = round(PC1, 2)),
-            hjust = ifelse(loadings_df$PC1 > 0, -0.15, 1.15),
-            size = 4) +
-  expand_limits(y = c(min(loadings_df$PC1) - 0.15,
-                      max(loadings_df$PC1) + 0.15)) +
-  labs(title = "PC1 loadings",
-    x = NULL,
-    y = "Loading"
-  ) + theme_minimal(base_size = 13)
+outliers_removed_matched_pc <- outliers_removed_matched %>%
+  left_join(
+    as.data.frame((pca_result_matched$scores*-1)) %>%
+      mutate(stdyptid = outliers_removed_matched$stdyptid), by = "stdyptid") 
+ 
+loadings_df <- get_loadings(pca_result_merged, 2, TRUE) 
+plot_loadings(loadings_df, "PC1")
+
+loadings_df <- get_loadings(pca_result_matched, 2, TRUE) 
+plot_loadings(loadings_df, "PC1")
 
 # Extract eigenvalues from the PCA result
 eigenvalues <- pca_result$values
- # Calculate the proportion of variance explained by each principal component
+# Calculate the proportion of variance explained by each principal component
 variance_explained <- eigenvalues / sum(eigenvalues)
 
 # Create a scree plot
-plot(1:length(variance_explained), variance_explained, type = "b", 
-     xlab = "Principal Component", ylab = "Proportion of Variance Explained", main = "Scree Plot")
+plot(1:length(variance_explained), variance_explained, type = "b",  xlab = "Principal Component", ylab = "Proportion of Variance Explained", main = "Scree Plot")
 ```
 
-
-
-# ANALYSIS
-# Linear regression model with bpad as outcome variable
-### Ridge Bpad
 ```{r}
-# Filter out rows with missing bpad_ridge
-
-# fit_rc2_adj <- brm(
-#   RC2 ~ bpad_photon* dxgroupFK + agevisit + gender ,
-#   data = temp_analysis_df,
-#   family = gaussian(),
-#   prior = c(
-#     prior(normal(0, 0.5), class = "b"),
-#     prior(normal(0, 1), class = "Intercept"),
-#     prior(student_t(3, 0, 1), class = "sigma")
-#   ),
-#   chains = 4,
-#   iter = 1000,
-#   cores = 4,
-#   seed = 123
-# ) 
- 
-cor.test(outliers_removed_merged_pc$stroop1, outliers_removed_merged_pc$PC1)
 
 temp_analysis_df <- outliers_removed_merged_pc %>%
   left_join(
@@ -565,105 +499,99 @@ temp_analysis_df <- outliers_removed_merged_pc %>%
       select(stdyptid, bpad_ridge, bpad_photon, bpad_BrainAgeR, bpad_cnn),
     by = "stdyptid"
   )
-temp_analysis_df
-```
-
-
-```{r}
-
-temp_analysis_df <- temp_analysis_df %>%
-  dplyr::filter(!is.na(bpad_ridge))
-temp_analysis_df
-# Regress PC1 on residualized bpad_photon
-
-resid_mod <- lm(bpad_ridge ~ agevisit + gender, data = temp_analysis_df)
-
-resid_bpad_ridge <- resid(resid_mod)
-summary(resid_mod) 
-
-pca_cog_mod <- lm(PC1 ~ resid_bpad_ridge*dxgroupFK, data = temp_analysis_df)
-summary(pca_cog_mod)
- 
-# Get partial eta squared
-getPartialEtaSq(pca_cog_mod)
-
-# resid_bpad_ridge	0.178			
-# dxgroupFK	0.053			
-# resid_bpad_ridge:dxgroupFK	0.015	
-
-
-
-
-# Regress PC1 on residualized bpad_photon
-pca_cog_mod <- lm(PC1 ~ bpad_ridge*dxgroupFK + gender + agevisit, data = temp_analysis_df)
-summary(pca_cog_mod)
  
 
+temp_analysis_df
+predictors <- c( "bpad_photon", "bpad_BrainAgeR", "bpad_cnn","bpad_ridge")
+
+results_list <- list()
+
+for (pred in predictors) {
   
-```
-
-### PHOTON Bpad
-```{r}
-temp_analysis_df <- temp_analysis_df %>%
-  dplyr::filter(!is.na(bpad_photon))
-
-resid_mod <- lm(bpad_photon ~    agevisit, data = temp_analysis_df)
-resid_bpad_photon <- resid(resid_mod)
-summary(resid_mod)
-
-pca_cog_mod <- lm(PC1 ~  resid_bpad_photon*dxgroupFK  , data = temp_analysis_df)
-summary(pca_cog_mod)
-getPartialEtaSq(pca_cog_mod)
-
-
-# Regress PC1 on residualized bpad_photon
-pca_cog_mod <- lm(PC1 ~ bpad_photon*dxgroupFK + gender + agevisit, data = temp_analysis_df)
-summary(pca_cog_mod)
- 
-
-```
-
-
-### bpad_BrainAgeR  
-```{r}
-
-temp_analysis_df <- temp_analysis_df %>%
-  filter(
-     !is.na(bpad_BrainAgeR),
-   )
-temp_analysis_df
-resid_mod <- lm(bpad_BrainAgeR ~    agevisit, data = temp_analysis_df)
-resid_bpad_BrainAgeR <- resid(resid_mod)
-summary(resid_mod)
-pca_cog_mod <- lm(PC1 ~  resid_bpad_BrainAgeR*dxgroupFK  , data = temp_analysis_df)
-summary(pca_cog_mod)
-getPartialEtaSq(pca_cog_mod) 
-
-# Regress PC1 on residualized bpad_photon
-pca_cog_mod <- lm(PC1 ~ bpad_BrainAgeR*dxgroupFK + gender + agevisit, data = temp_analysis_df)
-summary(pca_cog_mod)
+  df_filtered <- temp_analysis_df %>%
+    dplyr::filter(!is.na(.data[[pred]]))
+  
+  res <- run_lm_brainage_model(
+    data = df_filtered,
+    predictor = pred,outcome = "PC1",
+    interaction = FALSE
+  )
+  
+  results_list[[pred]] <- res
+}
+results_list
 
  
+temp_analysis_df <- outliers_removed_matched_pc %>%
+  left_join(
+    outliers_removed_df %>%
+      select(stdyptid, bpad_ridge, bpad_photon, bpad_BrainAgeR, bpad_cnn),
+    by = "stdyptid"
+  )
+predictors <- c("bpad_ridge", "bpad_photon", "bpad_BrainAgeR", "bpad_cnn")
+
+results_list <- list()
+for (pred in predictors) {
+  
+  df_filtered <- temp_analysis_df %>%
+    dplyr::filter(!is.na(.data[[pred]]))
+  
+  res <- run_lm_brainage_model(
+    data = df_filtered,
+    predictor = pred,
+    outcome = "PC1" ,
+        interaction = FALSE
+)
+  
+  results_list[[pred]] <- res
+}
+results_list
+
 ```
 
 
-### bpad_BrainAgeR  
 ```{r}
-
 temp_analysis_df <- temp_analysis_df %>%
-  filter(
-     !is.na(bpad_cnn),
-   )
-resid_mod <- lm(bpad_cnn ~    agevisit, data = temp_analysis_df)
-resid_bpad_bpad_cnn <- resid(resid_mod)
-summary(resid_mod)
-resid_bpad_bpad_cnn
-pca_cog_mod <- lm(PC1 ~  resid_bpad_cnn*dxgroupFK  , data = temp_analysis_df)
-summary(pca_cog_mod)
-getPartialEtaSq(pca_cog_mod) 
+  dplyr::filter(!is.na(PC1))
 
-# Regress PC1 on residualized bpad_photon
-pca_cog_mod <- lm(PC1 ~ bpad_cnn*dxgroupFK + gender + agevisit, data = temp_analysis_df)
-summary(pca_cog_mod)
+colSums(is.na(temp_analysis_df))
+ temp_analysis_df %>% group_by(dxgroupFK)%>% tally()
+# Coefficients:
+#                      Estimate Std. Error t value Pr(>|t|)    
+# (Intercept)           4.95879    1.33256   3.721 0.000737 ***
+# bpad_ridge           -0.10282    0.03336  -3.082 0.004129 ** 
+# dxgroupFK            -0.93576    0.43261  -2.163 0.037879 *  
+# gender                0.64570    0.34050   1.896 0.066702 .  
+# agevisit             -0.08667    0.02543  -3.408 0.001739 ** 
+# bpad_ridge:dxgroupFK  0.05669    0.03325   1.705 0.097595 . 
+
+# Coefficients:
+#                       Estimate Std. Error t value Pr(>|t|)   
+# (Intercept)            3.47386    1.05443   3.295  0.00236 **
+# bpad_photon           -0.08144    0.03355  -2.427  0.02084 * 
+# dxgroupFK             -0.41479    0.31807  -1.304  0.20122   
+# gender                 0.54529    0.34862   1.564  0.12733   
+# agevisit              -0.07183    0.02324  -3.091  0.00403 **
+# bpad_photon:dxgroupFK  0.04666    0.03379   1.381  0.17660   
+#                     Estimate Std. Error t value Pr(>|t|)   
+# (Intercept)         1.999028   0.800702   2.497  0.01771 * 
+# bpad_cnn           -0.076144   0.050569  -1.506  0.14165   
+# dxgroupFK          -0.404240   0.438568  -0.922  0.36336   
+# gender              0.485512   0.341361   1.422  0.16433   
+# agevisit           -0.049157   0.017507  -2.808  0.00831 **
+# bpad_cnn:dxgroupFK -0.008713   0.058199  -0.150  0.88191  
+
+# Coefficients:
+#                          Estimate Std. Error t value Pr(>|t|)   
+# (Intercept)               2.37987    0.84465   2.818  0.00811 **
+# bpad_BrainAgeR           -0.08498    0.04267  -1.991  0.05477 . 
+# dxgroupFK                -0.47795    0.32546  -1.469  0.15142   
+# gender                    0.71900    0.39212   1.834  0.07574 . 
+# agevisit                 -0.04704    0.01811  -2.597  0.01395 * 
+# bpad_BrainAgeR:dxgroupFK  0.03703    0.04906   0.755  0.45564   
+# ---
+ 
 ```
+ 
+ 
 
